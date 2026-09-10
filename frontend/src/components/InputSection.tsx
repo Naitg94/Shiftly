@@ -18,12 +18,16 @@ interface InputSectionProps {
   inputText: string;
   setInputText: (text: string) => void;
   onAnalyze: () => void;
+  errorMessage?: string | null;
+  onUseDemoPreset?: () => void;
 }
 
 export default function InputSection({
   inputText,
   setInputText,
   onAnalyze,
+  errorMessage,
+  onUseDemoPreset,
 }: InputSectionProps) {
   const [activeTab, setActiveTab] = useState<"paste" | "upload">("paste");
   const [dragOver, setDragOver] = useState(false);
@@ -82,6 +86,31 @@ export default function InputSection({
           Turn long project communication into clear information.
         </p>
       </div>
+
+      {/* Error Alert Banner */}
+      {errorMessage && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-950/25 p-4 sm:p-5 flex items-start justify-between gap-4 text-slate-200 animate-in fade-in duration-150">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold text-rose-300">
+                Extraction Failed
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                {errorMessage}
+              </p>
+            </div>
+          </div>
+          {onUseDemoPreset && (
+            <button
+              onClick={onUseDemoPreset}
+              className="shrink-0 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors"
+            >
+              View Mock Demo
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Main Input Card */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl shadow-black/40 p-5 sm:p-7 space-y-5">

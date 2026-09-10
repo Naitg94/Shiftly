@@ -4,40 +4,45 @@ import { useEffect, useState } from "react";
 import { Check, Loader2, Sparkles } from "lucide-react";
 
 interface ProcessingStateProps {
-  onComplete: () => void;
+  isDone?: boolean;
+  onComplete?: () => void;
 }
 
 const STAGES = [
-  { id: 1, label: "Reading communication", description: "Parsing conversation structure and participants..." },
-  { id: 2, label: "Finding important information", description: "Identifying key points, decisions, and action items..." },
-  { id: 3, label: "Organizing results", description: "Synthesizing multi-view intelligence model..." },
+  { id: 1, label: "Reading communication", description: "Parsing conversation structure, participants, and timeline..." },
+  { id: 2, label: "Finding important information", description: "Extracting explicit key points, action items, and decisions..." },
+  { id: 3, label: "Organizing results", description: "Synthesizing intelligence into structured multi-view schema..." },
 ];
 
-export default function ProcessingState({ onComplete }: ProcessingStateProps) {
+export default function ProcessingState({ isDone = false, onComplete }: ProcessingStateProps) {
   const [currentStage, setCurrentStage] = useState(1);
 
   useEffect(() => {
     // Stage 1 -> 2
     const timer1 = setTimeout(() => {
       setCurrentStage(2);
-    }, 900);
+    }, 700);
 
     // Stage 2 -> 3
     const timer2 = setTimeout(() => {
       setCurrentStage(3);
-    }, 1900);
-
-    // Stage 3 -> Complete
-    const timer3 = setTimeout(() => {
-      onComplete();
-    }, 2800);
+    }, 1500);
 
     return () => {
       clearTimeout(timer1);
       clearTimeout(timer2);
-      clearTimeout(timer3);
     };
-  }, [onComplete]);
+  }, []);
+
+  useEffect(() => {
+    if (isDone && currentStage >= 2) {
+      setCurrentStage(3);
+      const doneTimer = setTimeout(() => {
+        if (onComplete) onComplete();
+      }, 400);
+      return () => clearTimeout(doneTimer);
+    }
+  }, [isDone, currentStage, onComplete]);
 
   return (
     <div className="w-full max-w-lg mx-auto py-16 px-4 animate-in fade-in duration-200">
@@ -51,15 +56,15 @@ export default function ProcessingState({ onComplete }: ProcessingStateProps) {
             Analyzing Communication
           </h2>
           <p className="text-xs text-slate-400">
-            Extracting critical intelligence from conversation
+            AI-powered intelligence extraction in progress
           </p>
         </div>
 
         {/* Stages Timeline */}
         <div className="space-y-4 text-left">
           {STAGES.map((stage) => {
-            const isFinished = currentStage > stage.id;
-            const isCurrent = currentStage === stage.id;
+            const isFinished = currentStage > stage.id || (isDone && stage.id <= 3);
+            const isCurrent = currentStage === stage.id && !isDone;
 
             return (
               <div

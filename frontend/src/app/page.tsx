@@ -15,9 +15,50 @@ export default function Home() {
   const [stage, setStage] = useState<AppStage>("input");
   const [inputText, setInputText] = useState("");
   const [analysisResult, setAnalysisResult] = useState<ShiftlyAnalysisResult>(MOCK_ANALYSIS_RESULT);
+  const [isApiDone, setIsApiDone] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleStartAnalysis = () => {
+  const handleStartAnalysis = async () => {
+    setErrorMessage(null);
+    setIsApiDone(false);
     setStage("processing");
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+    try {
+      const response = await fetch(`${apiUrl}/api/analyze`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text: inputText }),
+      });
+
+      if (!response.ok) {
+        let detail = `Error ${response.status}: ${response.statusText}`;
+        try {
+          const errJson = await response.json();
+          if (errJson.detail) {
+            detail = errJson.detail;
+          }
+        } catch {
+          // fallback to status text
+        }
+        throw new Error(detail);
+      }
+
+      const data: ShiftlyAnalysisResult = await response.json();
+      setAnalysisResult(data);
+      setIsApiDone(true);
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "Failed to connect to Shiftly backend server at http://localhost:8000";
+      setErrorMessage(msg);
+      setStage("input");
+      setIsApiDone(false);
+    }
   };
 
   const handleProcessingComplete = () => {
@@ -26,6 +67,14 @@ export default function Home() {
 
   const handleReset = () => {
     setStage("input");
+    setErrorMessage(null);
+    setIsApiDone(false);
+  };
+
+  const handleUseDemoPreset = () => {
+    setAnalysisResult(MOCK_ANALYSIS_RESULT);
+    setErrorMessage(null);
+    setStage("results");
   };
 
   return (
@@ -40,11 +89,16 @@ export default function Home() {
             inputText={inputText}
             setInputText={setInputText}
             onAnalyze={handleStartAnalysis}
+            errorMessage={errorMessage}
+            onUseDemoPreset={handleUseDemoPreset}
           />
         )}
 
         {stage === "processing" && (
-          <ProcessingState onComplete={handleProcessingComplete} />
+          <ProcessingState
+            isDone={isApiDone}
+            onComplete={handleProcessingComplete}
+          />
         )}
 
         {stage === "results" && (
