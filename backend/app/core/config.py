@@ -11,13 +11,22 @@ class Settings:
     VERSION: str = "0.4.0"
     TAGLINE: str = "Find what matters."
 
-    # Environment & Logging
+    # Environment, Server & Logging
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
-    ENABLE_DOCS: bool = os.getenv("ENABLE_DOCS", "true").lower() in ("true", "1", "yes")
+    HOST: str = os.getenv("HOST", "0.0.0.0")
+    PORT: int = int(os.getenv("PORT", "8000"))
+
+    # Documentation exposure: default to disabled in production unless explicitly set to true
+    ENABLE_DOCS: bool = os.getenv(
+        "ENABLE_DOCS", 
+        "false" if os.getenv("ENVIRONMENT", "").lower() == "production" else "true"
+    ).lower() in ("true", "1", "yes")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
 
     # Security & Limits
     MAX_INPUT_TEXT_CHARS: int = int(os.getenv("MAX_INPUT_TEXT_CHARS", "200000"))
+    MAX_TEXT_CHAR_COUNT: int = MAX_INPUT_TEXT_CHARS
+    GUEST_MAX_TEXT_CHAR_COUNT: int = int(os.getenv("GUEST_MAX_TEXT_CHAR_COUNT", "3000"))
     RATE_LIMIT_ANALYZE_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_ANALYZE_PER_MINUTE", "10"))
     RATE_LIMIT_PROJECTS_WRITE_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PROJECTS_WRITE_PER_MINUTE", "30"))
 
@@ -39,6 +48,7 @@ class Settings:
     SUPABASE_URL: str | None = os.getenv("SUPABASE_URL")
     SUPABASE_PUBLISHABLE_KEY: str | None = os.getenv("SUPABASE_PUBLISHABLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
     SUPABASE_ANON_KEY: str | None = os.getenv("SUPABASE_PUBLISHABLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+    DATABASE_URL: str | None = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
 
 
 settings = Settings()

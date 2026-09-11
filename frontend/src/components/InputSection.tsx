@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   Upload,
   FileText,
@@ -13,6 +14,8 @@ import {
   AlertCircle,
   X,
   FileSpreadsheet,
+  Archive,
+  Mail,
 } from "lucide-react";
 import { SAMPLE_CONVERSATION_RAW } from "@/data/mockData";
 
@@ -25,6 +28,7 @@ interface InputSectionProps {
   setActiveTab: (tab: "paste" | "upload") => void;
   onAnalyze: () => void;
   errorMessage?: string | null;
+  isGuestOversized?: boolean;
   onUseDemoPreset?: () => void;
 }
 
@@ -37,6 +41,7 @@ export default function InputSection({
   setActiveTab,
   onAnalyze,
   errorMessage,
+  isGuestOversized = false,
   onUseDemoPreset,
 }: InputSectionProps) {
   const [dragOver, setDragOver] = useState(false);
@@ -82,6 +87,8 @@ export default function InputSection({
     if (ext === "pdf") return <FileText className="h-6 w-6 text-rose-400" />;
     if (ext === "docx") return <FileCode className="h-6 w-6 text-blue-400" />;
     if (ext === "csv") return <FileSpreadsheet className="h-6 w-6 text-emerald-400" />;
+    if (ext === "zip") return <Archive className="h-6 w-6 text-emerald-400" />;
+    if (ext === "eml" || ext === "mbox") return <Mail className="h-6 w-6 text-sky-400" />;
     return <FileType2 className="h-6 w-6 text-amber-400" />;
   };
 
@@ -109,22 +116,38 @@ export default function InputSection({
 
       {/* Error Alert Banner */}
       {errorMessage && (
-        <div className="rounded-xl border border-rose-500/30 bg-rose-950/25 p-4 sm:p-5 flex items-start justify-between gap-4 text-slate-200 animate-in fade-in duration-150">
+        <div className="rounded-xl border border-rose-500/30 bg-rose-950/25 p-4 sm:p-5 flex flex-col sm:flex-row items-start justify-between gap-4 text-slate-200 animate-in fade-in duration-150">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <h3 className="text-sm font-semibold text-rose-300">
-                Extraction Failed
+                {isGuestOversized ? "Input Too Large for Guest Mode" : "Extraction Failed"}
               </h3>
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
                 {errorMessage}
               </p>
+              {isGuestOversized && (
+                <div className="pt-2 flex flex-wrap items-center gap-2.5">
+                  <Link
+                    href="/signup"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-500/20 transition-all cursor-pointer"
+                  >
+                    Create Free Account
+                  </Link>
+                  <Link
+                    href="/login"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    Log In
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
-          {onUseDemoPreset && (
+          {onUseDemoPreset && !isGuestOversized && (
             <button
               onClick={onUseDemoPreset}
-              className="shrink-0 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors"
+              className="shrink-0 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
             >
               View Mock Demo
             </button>
@@ -222,7 +245,7 @@ export default function InputSection({
                 <input
                   type="file"
                   id="file-upload-input"
-                  accept=".txt,.pdf,.docx,.csv,.log,.chat"
+                  accept=".txt,.pdf,.docx,.csv,.log,.chat,.zip,.eml,.mbox"
                   onChange={handleFileSelect}
                   className="sr-only"
                 />
@@ -238,7 +261,7 @@ export default function InputSection({
                       <span className="text-blue-400 hover:underline">Click to upload</span> or drag and drop
                     </p>
                     <p className="text-xs text-slate-400">
-                      TXT, PDF, DOCX, or exported chat transcripts
+                      WhatsApp ZIP, Email (.eml), PDF, DOCX, or TXT / chat exports
                     </p>
                   </div>
                 </label>
@@ -267,7 +290,7 @@ export default function InputSection({
                   <input
                     type="file"
                     id="file-replace-input"
-                    accept=".txt,.pdf,.docx,.csv,.log,.chat"
+                    accept=".txt,.pdf,.docx,.csv,.log,.chat,.zip,.eml,.mbox"
                     onChange={handleFileSelect}
                     className="sr-only"
                   />
@@ -281,6 +304,7 @@ export default function InputSection({
                     onClick={() => setSelectedFile(null)}
                     className="rounded-lg p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-900 transition-colors"
                     title="Remove file"
+                    aria-label="Remove selected file"
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -290,16 +314,22 @@ export default function InputSection({
 
             <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] text-slate-400">
               <span className="flex items-center gap-1 rounded bg-slate-950 px-2 py-1 border border-slate-800">
-                <FileType2 className="h-3 w-3 text-slate-400" /> .TXT
+                <Archive className="h-3 w-3 text-emerald-400" /> WhatsApp (.zip)
               </span>
               <span className="flex items-center gap-1 rounded bg-slate-950 px-2 py-1 border border-slate-800">
-                <FileText className="h-3 w-3 text-slate-400" /> .PDF
+                <Mail className="h-3 w-3 text-sky-400" /> Email (.eml)
               </span>
               <span className="flex items-center gap-1 rounded bg-slate-950 px-2 py-1 border border-slate-800">
-                <FileCode className="h-3 w-3 text-slate-400" /> .DOCX
+                <FileText className="h-3 w-3 text-rose-400" /> .PDF
               </span>
               <span className="flex items-center gap-1 rounded bg-slate-950 px-2 py-1 border border-slate-800">
-                Chat Exports
+                <FileCode className="h-3 w-3 text-blue-400" /> .DOCX
+              </span>
+              <span className="flex items-center gap-1 rounded bg-slate-950 px-2 py-1 border border-slate-800">
+                <FileType2 className="h-3 w-3 text-amber-400" /> .TXT / Chat
+              </span>
+              <span className="flex items-center gap-1 rounded bg-slate-950 px-2 py-1 border border-slate-800">
+                <Mail className="h-3 w-3 text-slate-400" /> .MBOX
               </span>
             </div>
           </div>

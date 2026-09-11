@@ -150,10 +150,11 @@ def test_html_script_tags_treated_as_plain_text():
 # =========================================================================
 
 def test_unauthenticated_endpoints_blocked():
-    """Verify protected endpoints return 401 when no token is supplied."""
-    assert client_unauth.post("/api/analyze", json={"text": "hello"}).status_code == 401
+    """Verify protected endpoints return 401 when no token is supplied or token is invalid."""
     assert client_unauth.get("/api/projects").status_code == 401
     assert client_unauth.post("/api/projects", json={"name": "Test"}).status_code == 401
+    bad_client = TestClient(app, headers={"Authorization": "Bearer fake-invalid-token"})
+    assert bad_client.post("/api/analyze", json={"text": "hello"}).status_code in [401, 503]
 
 
 def test_cross_user_isolation_enforced():

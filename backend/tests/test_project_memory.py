@@ -187,13 +187,15 @@ def test_9_regression_endpoints():
     res_h = client.get("/api/health")
     assert res_h.status_code == 200
 
-    # Paste analyze endpoint
-    res_p = client.post("/api/analyze", json={"text": "Client: Approved the drawings."})
-    assert res_p.status_code in [200, 503]
+    from unittest.mock import patch
+    with patch("app.api.v1.endpoints.analyze.analyze_communication", return_value=SAMPLE_RESULT):
+        # Paste analyze endpoint
+        res_p = client.post("/api/analyze", json={"text": "Client: Approved the drawings."})
+        assert res_p.status_code == 200
 
-    # File analyze endpoint
-    res_f = client.post("/api/analyze/file", files={"file": ("notes.txt", b"Client: Approved drawings.", "text/plain")})
-    assert res_f.status_code in [200, 503]
+        # File analyze endpoint
+        res_f = client.post("/api/analyze/file", files={"file": ("notes.txt", b"Client: Approved drawings.", "text/plain")})
+        assert res_f.status_code == 200
 
 
 def test_10_missing_supabase_config_enforcement(monkeypatch):

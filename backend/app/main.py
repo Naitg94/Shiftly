@@ -126,7 +126,19 @@ def read_root():
         "version": settings.VERSION,
         "endpoints": {
             "health": "/api/health",
+            "ready": "/api/ready",
             "analyze": "/api/analyze",
+            "projects": "/api/projects",
         },
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "app.main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=settings.ENVIRONMENT != "production",
+    )
 

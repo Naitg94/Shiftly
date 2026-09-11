@@ -7,10 +7,12 @@ import { supabase } from '@/lib/supabaseClient';
 interface AuthContextType {
   user: User | null;
   session: Session | null;
+  displayName: string;
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: AuthError | null; user: User | null }>;
+  signUp: (email: string, password: string, displayName?: string) => Promise<{ error: AuthError | null; user: User | null }>;
   signOut: () => Promise<{ error: AuthError | null }>;
+  updateDisplayName: (name: string) => Promise<{ error: AuthError | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -42,6 +44,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const displayName =
+    user?.user_metadata?.display_name ||
+    user?.user_metadata?.name ||
+    user?.email?.split('@')[0] ||
+    '';
+
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -50,10 +58,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error };
   };
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, displayName?: string) => {
+    const trimmedName = displayName?.trim();
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: trimmedName ? { display_name: trimmedName } : {},
+      },
     });
     return { error, user: data.user };
   };
@@ -63,15 +75,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error };
   };
 
+  const updateDisplayName = async (name: string) => {
+    const trimmed = name.trim();
+    const { data, error } = await supabase.auth.updateUser({
+      data: { display_name: trimmed },
+    });
+    if (!error && data.user) {
+      setUser(data.user);
+    }
+    return { error };
+  };
+
   return (
     <AuthContext.Provider
       value={{
         user,
         session,
+        displayName,
         isLoading,
         signIn,
         signUp,
         signOut,
+        updateDisplayName,
       }}
     >
       {children}

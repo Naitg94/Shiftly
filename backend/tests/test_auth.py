@@ -16,11 +16,20 @@ def test_missing_auth_header_projects():
     assert "Missing Bearer token" in res.json()["detail"]
 
 
-def test_missing_auth_header_analyze():
-    # Attempting to analyze without token yields 401
-    res = raw_client.post("/api/analyze", json={"text": "Client: Hello"})
-    assert res.status_code == 401
-    assert "Missing Bearer token" in res.json()["detail"]
+def test_unauthenticated_analyze_allowed_as_guest():
+    # Attempting to analyze without token is allowed as guest
+    from unittest.mock import patch
+    from tests.test_project_memory import SAMPLE_RESULT
+    with patch("app.api.v1.endpoints.analyze.analyze_communication", return_value=SAMPLE_RESULT):
+        res = raw_client.post("/api/analyze", json={"text": "Client: Hello"})
+        assert res.status_code == 200
+
+
+def test_invalid_token_on_analyze_rejected():
+    # Invalid token (non test-token) is rejected with 401/503 even on analyze
+    client_invalid = TestClient(app, headers={"Authorization": "Bearer forged-fake-token"})
+    res = client_invalid.post("/api/analyze", json={"text": "Client: Hello"})
+    assert res.status_code in [401, 503]
 
 
 def test_malformed_auth_header():

@@ -30,8 +30,10 @@ import SummaryView from "./views/SummaryView";
 import TableView from "./views/TableView";
 import StructuredView from "./views/StructuredView";
 import SourceModal from "./SourceModal";
+import Link from "next/link";
 import { Project } from "@/types/project";
 import { fetchProjects, createProject, saveAnalysisToProject, ApiError } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 
 interface ResultsDashboardProps {
   result: ShiftlyAnalysisResult;
@@ -48,11 +50,13 @@ export default function ResultsDashboard({
   onBackToMemory,
   isFromMemory = false,
 }: ResultsDashboardProps) {
+  const { user } = useAuth();
   const [activeView, setActiveView] = useState<ViewMode>("keypoints");
   const [selectedSource, setSelectedSource] = useState<SourceReference | null>(null);
 
   // Save to Project State
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [isGuestSaveModalOpen, setIsGuestSaveModalOpen] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
@@ -68,13 +72,14 @@ export default function ResultsDashboard({
   // Close save modal on Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isSaveModalOpen) {
-        setIsSaveModalOpen(false);
+      if (e.key === "Escape") {
+        if (isSaveModalOpen) setIsSaveModalOpen(false);
+        if (isGuestSaveModalOpen) setIsGuestSaveModalOpen(false);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isSaveModalOpen]);
+  }, [isSaveModalOpen, isGuestSaveModalOpen]);
 
   const tabs: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
     { id: "keypoints", label: "Key Points", icon: <ListChecks className="h-4 w-4" /> },
@@ -82,6 +87,14 @@ export default function ResultsDashboard({
     { id: "table", label: "Table", icon: <Table className="h-4 w-4" /> },
     { id: "structured", label: "Structured", icon: <LayoutGrid className="h-4 w-4" /> },
   ];
+
+  const handleSaveClick = () => {
+    if (!user) {
+      setIsGuestSaveModalOpen(true);
+      return;
+    }
+    handleOpenSaveModal();
+  };
 
   const handleOpenSaveModal = async () => {
     setIsSaveModalOpen(true);
@@ -182,8 +195,8 @@ export default function ResultsDashboard({
             </button>
           ) : (
             <button
-              onClick={handleOpenSaveModal}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-500/30 bg-blue-600/10 px-4 py-2 text-xs sm:text-sm font-medium text-blue-400 hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+              onClick={handleSaveClick}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-500/30 bg-blue-600/10 px-4 py-2 text-xs sm:text-sm font-medium text-blue-400 hover:bg-blue-600 hover:text-white transition-all shadow-sm cursor-pointer"
             >
               <Bookmark className="h-3.5 w-3.5" />
               <span>Save to Project</span>
@@ -453,6 +466,67 @@ export default function ResultsDashboard({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Guest Save to Project Memory Conversion Modal */}
+      {isGuestSaveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl p-6 sm:p-7 space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                  <Bookmark className="h-4 w-4" />
+                </div>
+                <h3 className="text-base font-bold text-white">Save to Project Memory</h3>
+              </div>
+              <button
+                onClick={() => setIsGuestSaveModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                aria-label="Close modal"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-sm text-slate-300">
+              <p className="leading-relaxed">
+                Create a free account or sign in to save this analysis to Project Memory.
+              </p>
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 space-y-2 text-xs text-slate-400">
+                <div className="flex items-center gap-2 text-slate-300 font-medium">
+                  <Sparkles className="h-3.5 w-3.5 text-blue-400" />
+                  <span>With a Shiftly account:</span>
+                </div>
+                <ul className="space-y-1.5 list-disc list-inside text-slate-400 pl-1">
+                  <li>Organize analyses into persistent project workspaces</li>
+                  <li>Search across all discussions and decisions</li>
+                  <li>Analyze larger communications up to 200,000 characters</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+              <button
+                onClick={() => setIsGuestSaveModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Continue as Guest
+              </button>
+              <Link
+                href="/login"
+                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 text-center transition-colors cursor-pointer"
+              >
+                Log In
+              </Link>
+              <Link
+                href="/signup"
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-500/20 text-center transition-colors cursor-pointer"
+              >
+                Create Free Account
+              </Link>
+            </div>
           </div>
         </div>
       )}

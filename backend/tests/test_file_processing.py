@@ -15,9 +15,19 @@ from app.services.file_processing_service import (
 )
 
 import os
+import pytest
+from app.core.rate_limiter import rate_limiter
+
 os.environ["TEST_USE_SQLITE"] = "true"
 
 client = TestClient(app, headers={"Authorization": "Bearer test-token-123"})
+
+
+@pytest.fixture(autouse=True)
+def reset_limiter():
+    rate_limiter.reset()
+    yield
+    rate_limiter.reset()
 
 SAMPLE_CHAT_TXT = """[10/12/2024, 08:34] David Miller: Morning team. Let's reduce reception desk width by 300 mm.
 [10/12/2024, 08:42] Elena Vance: Understood. I will issue revised drawings by Friday.

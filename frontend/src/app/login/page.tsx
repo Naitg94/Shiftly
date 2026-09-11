@@ -89,10 +89,11 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">
+              <label htmlFor="login-email" className="text-xs font-semibold text-slate-300">
                 Email Address
               </label>
               <input
+                id="login-email"
                 type="email"
                 required
                 autoComplete="email"
@@ -104,12 +105,11 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-slate-300">
-                  Password
-                </label>
-              </div>
+              <label htmlFor="login-password" className="text-xs font-semibold text-slate-300">
+                Password
+              </label>
               <input
+                id="login-password"
                 type="password"
                 required
                 autoComplete="current-password"

@@ -4,7 +4,7 @@ from typing import Dict, List, Tuple, Optional
 from abc import ABC, abstractmethod
 from fastapi import Request, HTTPException, status, Depends
 from app.core.config import settings
-from app.core.auth import AuthenticatedUser, get_current_user
+from app.core.auth import AuthenticatedUser, get_current_user, get_optional_current_user
 
 
 class RateLimitExceededException(HTTPException):
@@ -115,10 +115,32 @@ def create_rate_limiter_dependency(
     scope: str,
     max_requests: int,
     window_seconds: int = 60,
+    allow_unauthenticated: bool = False,
 ):
     """
     Factory creating a FastAPI dependency for rate limiting a specific route.
     """
+    if allow_unauthenticated:
+        async def dependency(
+            request: Request,
+            current_user: Optional[AuthenticatedUser] = Depends(get_optional_current_user),
+        ):
+            ident = get_client_identifier(request, current_user)
+            key = f"{ident}:{scope}"
+            allowed, retry_after = rate_limiter.check_rate_limit(
+                key=key,
+                max_requests=max_requests,
+                window_seconds=window_seconds,
+            )
+            if not allowed:
+                raise RateLimitExceededException(
+                    retry_after=retry_after,
+                    detail=f"Rate limit exceeded for {scope}. Please wait {retry_after} seconds before trying again.",
+                )
+            return True
+
+        return dependency
+
     async def dependency(
         request: Request,
         current_user: AuthenticatedUser = Depends(get_current_user),
@@ -145,10 +167,12 @@ rate_limit_analyze = create_rate_limiter_dependency(
     scope="ai_analyze",
     max_requests=getattr(settings, "RATE_LIMIT_ANALYZE_PER_MINUTE", 10),
     window_seconds=60,
+    allow_unauthenticated=True,
 )
 
 rate_limit_projects_write = create_rate_limiter_dependency(
     scope="projects_write",
     max_requests=getattr(settings, "RATE_LIMIT_PROJECTS_WRITE_PER_MINUTE", 30),
     window_seconds=60,
+    allow_unauthenticated=False,
 )

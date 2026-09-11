@@ -124,6 +124,10 @@ Produce a complete structured extraction matching the requested JSON schema."""
         duration_ms = (time.perf_counter() - start_t) * 1000.0
         logger.error(f"Timeout calling Gemini (duration_ms={duration_ms:.2f}): {te}")
         raise TimeoutError("Gemini extraction timed out.") from te
+    except httpx.RequestError as re_err:
+        duration_ms = (time.perf_counter() - start_t) * 1000.0
+        logger.error(f"Network error calling Gemini (duration_ms={duration_ms:.2f}): {re_err}")
+        raise RuntimeError(f"Network error communicating with AI service: {re_err}") from re_err
     except (json.JSONDecodeError, ValueError) as ve:
         duration_ms = (time.perf_counter() - start_t) * 1000.0
         logger.error(f"Error parsing Gemini extraction result structure (duration_ms={duration_ms:.2f}): {ve}")

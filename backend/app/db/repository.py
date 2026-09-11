@@ -169,6 +169,8 @@ class ProjectMemoryRepository:
 
     @property
     def _active_sqlite_mode(self) -> bool:
+        if settings.ENVIRONMENT == "production":
+            return False
         return self.use_sqlite_for_tests or os.getenv("TEST_USE_SQLITE", "false").lower() == "true"
 
     def _ensure_configured(self):

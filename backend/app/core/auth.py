@@ -35,8 +35,8 @@ async def get_current_user(
 
     token = credentials.credentials.strip()
 
-    # If running automated unit tests with SQLite fallback, support test token bypass
-    if os.getenv("TEST_USE_SQLITE") == "true" and token.startswith("test-token"):
+    # If running automated unit tests with SQLite fallback, support test token bypass (strictly disabled in production)
+    if settings.ENVIRONMENT != "production" and os.getenv("TEST_USE_SQLITE") == "true" and token.startswith("test-token"):
         user_uuid = "00000000-0000-0000-0000-000000000002" if "user-b" in token else "00000000-0000-0000-0000-000000000001"
         return AuthenticatedUser(
             id=user_uuid,
@@ -92,3 +92,17 @@ async def get_current_user(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service temporarily unavailable.",
         )
+
+
+async def get_optional_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> Optional[AuthenticatedUser]:
+    """
+    Returns AuthenticatedUser if valid Bearer token is present.
+    Returns None if request is unauthenticated (guest).
+    Raises HTTP 401 if a token was supplied but is invalid/expired.
+    """
+    if not credentials or not credentials.credentials:
+        return None
+    return await get_current_user(credentials)
+

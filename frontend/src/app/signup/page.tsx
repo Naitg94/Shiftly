@@ -10,6 +10,7 @@ export default function SignUpPage() {
   const router = useRouter();
   const { signUp, user, isLoading } = useAuth();
 
+  const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -39,6 +40,27 @@ export default function SignUpPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmedName = displayName.trim();
+    if (!trimmedName) {
+      setErrorMessage('Please enter your display name.');
+      return;
+    }
+
+    if (trimmedName.length < 2) {
+      setErrorMessage('Display name must be at least 2 characters long.');
+      return;
+    }
+
+    if (trimmedName.length > 50) {
+      setErrorMessage('Display name cannot exceed 50 characters.');
+      return;
+    }
+
+    if (/[\u0000-\u001F\u007F-\u009F]/.test(trimmedName)) {
+      setErrorMessage('Display name contains invalid characters.');
+      return;
+    }
+
     if (!email.trim() || !password) {
       setErrorMessage('Please fill in all fields.');
       return;
@@ -59,7 +81,7 @@ export default function SignUpPage() {
     setSuccessMessage(null);
 
     try {
-      const { error, user: createdUser } = await signUp(email.trim(), password);
+      const { error, user: createdUser } = await signUp(email.trim(), password, trimmedName);
       if (error) {
         setErrorMessage(error.message);
       } else if (createdUser && !createdUser.identities?.length) {
@@ -112,10 +134,28 @@ export default function SignUpPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">
+              <label htmlFor="signup-display-name" className="text-xs font-semibold text-slate-300">
+                Display Name
+              </label>
+              <input
+                id="signup-display-name"
+                type="text"
+                required
+                autoComplete="name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="e.g. Alex Morgan"
+                maxLength={50}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="signup-email" className="text-xs font-semibold text-slate-300">
                 Email Address
               </label>
               <input
+                id="signup-email"
                 type="email"
                 required
                 autoComplete="email"
@@ -127,10 +167,11 @@ export default function SignUpPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">
+              <label htmlFor="signup-password" className="text-xs font-semibold text-slate-300">
                 Password
               </label>
               <input
+                id="signup-password"
                 type="password"
                 required
                 autoComplete="new-password"
@@ -142,10 +183,11 @@ export default function SignUpPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">
+              <label htmlFor="signup-confirm-password" className="text-xs font-semibold text-slate-300">
                 Confirm Password
               </label>
               <input
+                id="signup-confirm-password"
                 type="password"
                 required
                 autoComplete="new-password"
