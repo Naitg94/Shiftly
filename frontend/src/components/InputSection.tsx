@@ -11,12 +11,18 @@ import {
   FileCode,
   FileUp,
   AlertCircle,
+  X,
+  FileSpreadsheet,
 } from "lucide-react";
 import { SAMPLE_CONVERSATION_RAW } from "@/data/mockData";
 
 interface InputSectionProps {
   inputText: string;
   setInputText: (text: string) => void;
+  selectedFile: File | null;
+  setSelectedFile: (file: File | null) => void;
+  activeTab: "paste" | "upload";
+  setActiveTab: (tab: "paste" | "upload") => void;
   onAnalyze: () => void;
   errorMessage?: string | null;
   onUseDemoPreset?: () => void;
@@ -25,23 +31,28 @@ interface InputSectionProps {
 export default function InputSection({
   inputText,
   setInputText,
+  selectedFile,
+  setSelectedFile,
+  activeTab,
+  setActiveTab,
   onAnalyze,
   errorMessage,
   onUseDemoPreset,
 }: InputSectionProps) {
-  const [activeTab, setActiveTab] = useState<"paste" | "upload">("paste");
   const [dragOver, setDragOver] = useState(false);
-  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
 
   const handleLoadSample = () => {
     setInputText(SAMPLE_CONVERSATION_RAW);
-    setUploadedFileName(null);
+    setSelectedFile(null);
     setActiveTab("paste");
   };
 
   const handleClear = () => {
-    setInputText("");
-    setUploadedFileName(null);
+    if (activeTab === "paste") {
+      setInputText("");
+    } else {
+      setSelectedFile(null);
+    }
   };
 
   const handleFileDrop = (e: React.DragEvent) => {
@@ -49,27 +60,36 @@ export default function InputSection({
     setDragOver(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
-      setUploadedFileName(file.name);
-      // Auto pre-populate sample text so user can test immediately
-      if (!inputText) {
-        setInputText(SAMPLE_CONVERSATION_RAW);
-      }
+      setSelectedFile(file);
     }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
-      setUploadedFileName(file.name);
-      if (!inputText) {
-        setInputText(SAMPLE_CONVERSATION_RAW);
-      }
+      setSelectedFile(file);
     }
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getFileIcon = (filename: string) => {
+    const ext = filename.toLowerCase().split(".").pop();
+    if (ext === "pdf") return <FileText className="h-6 w-6 text-rose-400" />;
+    if (ext === "docx") return <FileCode className="h-6 w-6 text-blue-400" />;
+    if (ext === "csv") return <FileSpreadsheet className="h-6 w-6 text-emerald-400" />;
+    return <FileType2 className="h-6 w-6 text-amber-400" />;
   };
 
   const charCount = inputText.length;
   const wordCount = inputText.trim() ? inputText.trim().split(/\s+/).length : 0;
-  const isReadyToAnalyze = inputText.trim().length > 0 || uploadedFileName !== null;
+  const isReadyToAnalyze =
+    (activeTab === "paste" && inputText.trim().length > 0) ||
+    (activeTab === "upload" && selectedFile !== null);
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-8 animate-in fade-in duration-200">
@@ -138,25 +158,29 @@ export default function InputSection({
             >
               <Upload className="h-3.5 w-3.5" />
               <span>Upload File</span>
-              <span className="text-[10px] text-slate-400 font-normal">UI</span>
+              {selectedFile && (
+                <span className="h-2 w-2 rounded-full bg-blue-500"></span>
+              )}
             </button>
           </div>
 
           {/* Quick Actions */}
           <div className="flex items-center gap-2 self-end sm:self-auto text-xs">
-            <button
-              onClick={handleLoadSample}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 font-medium text-blue-300 hover:bg-blue-500/20 transition-colors"
-              title="Load a realistic construction coordination thread"
-            >
-              <FileText className="h-3.5 w-3.5" />
-              <span>Load sample conversation</span>
-            </button>
-            {charCount > 0 && (
+            {activeTab === "paste" && (
+              <button
+                onClick={handleLoadSample}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 font-medium text-blue-300 hover:bg-blue-500/20 transition-colors"
+                title="Load a realistic construction coordination thread"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                <span>Load sample conversation</span>
+              </button>
+            )}
+            {((activeTab === "paste" && charCount > 0) || (activeTab === "upload" && selectedFile !== null)) && (
               <button
                 onClick={handleClear}
                 className="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-1.5 font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-                title="Clear current text"
+                title="Clear current input"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
                 <span>Clear</span>
@@ -181,50 +205,88 @@ export default function InputSection({
         {/* Tab 2: Upload File */}
         {activeTab === "upload" && (
           <div className="space-y-4">
-            <div
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOver(true);
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleFileDrop}
-              className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 sm:p-12 text-center transition-all ${
-                dragOver
-                  ? "border-blue-500 bg-blue-950/20"
-                  : "border-slate-800 bg-slate-950/50 hover:border-slate-700"
-              }`}
-            >
-              <input
-                type="file"
-                id="file-upload-input"
-                accept=".txt,.pdf,.docx,.csv"
-                onChange={handleFileSelect}
-                className="sr-only"
-              />
-              <label
-                htmlFor="file-upload-input"
-                className="cursor-pointer flex flex-col items-center space-y-3"
+            {!selectedFile ? (
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleFileDrop}
+                className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 sm:p-12 text-center transition-all ${
+                  dragOver
+                    ? "border-blue-500 bg-blue-950/20"
+                    : "border-slate-800 bg-slate-950/50 hover:border-slate-700"
+                }`}
               >
-                <div className="h-12 w-12 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 border border-blue-500/20">
-                  <FileUp className="h-6 w-6" />
+                <input
+                  type="file"
+                  id="file-upload-input"
+                  accept=".txt,.pdf,.docx,.csv,.log,.chat"
+                  onChange={handleFileSelect}
+                  className="sr-only"
+                />
+                <label
+                  htmlFor="file-upload-input"
+                  className="cursor-pointer flex flex-col items-center space-y-3"
+                >
+                  <div className="h-12 w-12 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 border border-blue-500/20">
+                    <FileUp className="h-6 w-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-slate-200">
+                      <span className="text-blue-400 hover:underline">Click to upload</span> or drag and drop
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      TXT, PDF, DOCX, or exported chat transcripts
+                    </p>
+                  </div>
+                </label>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-slate-700 bg-slate-950/80 p-5 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className="h-12 w-12 rounded-xl bg-slate-900 flex items-center justify-center border border-slate-800 shrink-0">
+                    {getFileIcon(selectedFile.name)}
+                  </div>
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="text-sm font-semibold text-white truncate">
+                      {selectedFile.name}
+                    </p>
+                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                      <span className="font-mono">{formatFileSize(selectedFile.size)}</span>
+                      <span>•</span>
+                      <span className="uppercase tracking-wider font-semibold text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.2 rounded border border-blue-500/20">
+                        {selectedFile.name.split(".").pop()}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <p className="text-sm font-medium text-slate-200">
-                    <span className="text-blue-400 hover:underline">Click to upload</span> or drag and drop
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    TXT, PDF, DOCX, or exported chat transcripts
-                  </p>
-                </div>
-              </label>
 
-              {uploadedFileName && (
-                <div className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-emerald-400">
-                  <FileText className="h-3.5 w-3.5" />
-                  <span>Ready: {uploadedFileName}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <input
+                    type="file"
+                    id="file-replace-input"
+                    accept=".txt,.pdf,.docx,.csv,.log,.chat"
+                    onChange={handleFileSelect}
+                    className="sr-only"
+                  />
+                  <label
+                    htmlFor="file-replace-input"
+                    className="cursor-pointer rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+                  >
+                    Replace
+                  </label>
+                  <button
+                    onClick={() => setSelectedFile(null)}
+                    className="rounded-lg p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-900 transition-colors"
+                    title="Remove file"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] text-slate-400">
               <span className="flex items-center gap-1 rounded bg-slate-950 px-2 py-1 border border-slate-800">
@@ -243,16 +305,31 @@ export default function InputSection({
           </div>
         )}
 
-        {/* Footer: Character Count & Analyze Button */}
+        {/* Footer: Details & Analyze Button */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pt-2">
           <div className="text-xs text-slate-400 flex items-center gap-3">
-            <span>
-              <strong className="text-slate-300 font-mono">{charCount.toLocaleString()}</strong> characters
-            </span>
-            <span>•</span>
-            <span>
-              <strong className="text-slate-300 font-mono">{wordCount.toLocaleString()}</strong> words
-            </span>
+            {activeTab === "paste" ? (
+              <>
+                <span>
+                  <strong className="text-slate-300 font-mono">{charCount.toLocaleString()}</strong> characters
+                </span>
+                <span>•</span>
+                <span>
+                  <strong className="text-slate-300 font-mono">{wordCount.toLocaleString()}</strong> words
+                </span>
+              </>
+            ) : (
+              <span>
+                {selectedFile ? (
+                  <span className="text-emerald-400 flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                    Ready for extraction ({formatFileSize(selectedFile.size)})
+                  </span>
+                ) : (
+                  <span>Select a document to extract information</span>
+                )}
+              </span>
+            )}
           </div>
 
           <button
@@ -265,7 +342,11 @@ export default function InputSection({
             }`}
           >
             <Sparkles className="h-4 w-4" />
-            <span>Analyze Communication</span>
+            <span>
+              {activeTab === "upload" && selectedFile
+                ? "Analyze Document"
+                : "Analyze Communication"}
+            </span>
           </button>
         </div>
       </div>

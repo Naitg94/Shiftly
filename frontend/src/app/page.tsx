@@ -14,6 +14,8 @@ type AppStage = "input" | "processing" | "results";
 export default function Home() {
   const [stage, setStage] = useState<AppStage>("input");
   const [inputText, setInputText] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [activeTab, setActiveTab] = useState<"paste" | "upload">("paste");
   const [analysisResult, setAnalysisResult] = useState<ShiftlyAnalysisResult>(MOCK_ANALYSIS_RESULT);
   const [isApiDone, setIsApiDone] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -26,13 +28,31 @@ export default function Home() {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
     try {
-      const response = await fetch(`${apiUrl}/api/analyze`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ text: inputText }),
-      });
+      let response: Response;
+
+      if (activeTab === "upload") {
+        if (!selectedFile) {
+          throw new Error("Please select a file to analyze.");
+        }
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+
+        response = await fetch(`${apiUrl}/api/analyze/file`, {
+          method: "POST",
+          body: formData,
+        });
+      } else {
+        if (!inputText.trim()) {
+          throw new Error("Please paste a conversation to analyze.");
+        }
+        response = await fetch(`${apiUrl}/api/analyze`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ text: inputText }),
+        });
+      }
 
       if (!response.ok) {
         let detail = `Error ${response.status}: ${response.statusText}`;
@@ -88,6 +108,10 @@ export default function Home() {
           <InputSection
             inputText={inputText}
             setInputText={setInputText}
+            selectedFile={selectedFile}
+            setSelectedFile={setSelectedFile}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
             onAnalyze={handleStartAnalysis}
             errorMessage={errorMessage}
             onUseDemoPreset={handleUseDemoPreset}

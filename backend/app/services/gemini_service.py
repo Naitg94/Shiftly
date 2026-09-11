@@ -1,5 +1,8 @@
 import json
 import logging
+import os
+import re
+from typing import List, Optional, Any
 from datetime import datetime
 from google import genai
 from google.genai import types
@@ -94,21 +97,77 @@ Produce a complete structured extraction matching the requested JSON schema."""
         raise
 
 
-def validate_and_align_sources(result: ShiftlyAnalysisResult, raw_text: str) -> ShiftlyAnalysisResult:
+def validate_and_align_sources(
+    result: ShiftlyAnalysisResult,
+    raw_text: str,
+    source_blocks: Optional[List[Any]] = None,
+    default_source_name: Optional[str] = None,
+    default_source_type: Optional[str] = None,
+) -> ShiftlyAnalysisResult:
     """
-    Validates and aligns every extracted item's source citation against the original text.
-    Ensures that excerpts accurately reflect the conversation without fabrication.
+    Validates and aligns every extracted item's source citation against the original text or
+    source file ContentBlocks (preserving page numbers, paragraph indices, line numbers).
     """
     lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
 
     def align_source(src):
-        if not src or not src.excerpt:
+        if not src:
             return src
-        # Exact or case-insensitive match
+
+        # Case 1: Source blocks provided (from PDF, DOCX, TXT file extraction)
+        if source_blocks:
+            src_words = set(re.findall(r"\b\w{3,}\b", (src.excerpt or "").lower()))
+            best_block = None
+            best_score = 0.0
+
+            for block in source_blocks:
+                block_lower = block.text.lower()
+                excerpt_clean = (src.excerpt or "").strip().lower()
+
+                # Direct substring match
+                if excerpt_clean and (excerpt_clean in block_lower or block_lower in excerpt_clean):
+                    best_block = block
+                    best_score = 1.0
+                    break
+
+                # Overlap match
+                block_words = set(re.findall(r"\b\w{3,}\b", block_lower))
+                if src_words and block_words:
+                    score = len(src_words.intersection(block_words)) / max(1, len(src_words))
+                    if score > best_score:
+                        best_score = score
+                        best_block = block
+
+            if best_block and best_score >= 0.35:
+                src.sourceName = default_source_name or best_block.source_name
+                src.sourceType = default_source_type or best_block.source_type
+                src.messageRef = best_block.location
+                if best_block.sender and (not src.sender or src.sender in {"Unassigned", "Unknown", "Document"}):
+                    src.sender = best_block.sender
+                # Align excerpt to the actual dialogue/sentence
+                if ":" in best_block.text and not best_block.text.startswith("http"):
+                    parts = best_block.text.split(":", 1)
+                    src.excerpt = parts[1].strip()
+                    if not src.sender or src.sender in {"Unassigned", "Unknown", "Document"}:
+                        src.sender = parts[0].strip()
+                else:
+                    src.excerpt = best_block.text
+                return src
+
+            # Fallback if no block matched cleanly: still set filename and source type
+            if default_source_name:
+                src.sourceName = default_source_name
+            if default_source_type:
+                src.sourceType = default_source_type
+            return src
+
+        # Case 2: Pasted conversation (line snapping)
+        if not src.excerpt:
+            return src
+
         if src.excerpt.strip().lower() in raw_text.lower():
             return src
 
-        # Find best matching line based on word overlap
         src_words = set(re.findall(r"\b\w{3,}\b", src.excerpt.lower()))
         if not src_words:
             return src
@@ -124,7 +183,6 @@ def validate_and_align_sources(result: ShiftlyAnalysisResult, raw_text: str) -> 
                     best_line = line
 
         if best_line and best_score >= 0.4:
-            # Snap excerpt to the actual dialogue statement
             if ":" in best_line:
                 speaker, dialogue = best_line.split(":", 1)
                 src.excerpt = dialogue.strip()
@@ -147,10 +205,16 @@ def validate_and_align_sources(result: ShiftlyAnalysisResult, raw_text: str) -> 
     return result
 
 
-def analyze_communication(raw_text: str) -> ShiftlyAnalysisResult:
+def analyze_communication(
+    raw_text: str,
+    source_blocks: Optional[List[Any]] = None,
+    default_source_name: Optional[str] = None,
+    default_source_type: Optional[str] = None,
+) -> ShiftlyAnalysisResult:
     """
     Main entrypoint: normalizes text, chunks if necessary, runs Gemini extraction,
     and merges/deduplicates multiple chunks into a unified ShiftlyAnalysisResult.
+    Accepts optional source_blocks to accurately preserve file locations.
     """
     cleaned_text = normalize_text(raw_text)
     if not cleaned_text:
@@ -158,7 +222,7 @@ def analyze_communication(raw_text: str) -> ShiftlyAnalysisResult:
 
     client = get_gemini_client()
     chunks = split_into_chunks(cleaned_text, max_chars=15000, overlap_chars=1000)
-    
+
     logger.info(f"Processing text ({len(cleaned_text)} chars) into {len(chunks)} chunk(s)")
 
     chunk_results: list[ShiftlyAnalysisResult] = []
@@ -168,8 +232,19 @@ def analyze_communication(raw_text: str) -> ShiftlyAnalysisResult:
 
     final_result = merge_analysis_results(chunk_results)
 
-    # Validate and snap source references to original conversation
-    final_result = validate_and_align_sources(final_result, cleaned_text)
+    # Validate and snap source references to original conversation or file blocks
+    final_result = validate_and_align_sources(
+        final_result,
+        cleaned_text,
+        source_blocks=source_blocks,
+        default_source_name=default_source_name,
+        default_source_type=default_source_type,
+    )
+
+    # Set document title if analyzing a named file and model title is generic
+    if default_source_name and (not final_result.title or final_result.title == "Shiftly Analysis"):
+        clean_name = os.path.splitext(default_source_name)[0].replace("_", " ").title()
+        final_result.title = f"{clean_name} Analysis"
 
     # Ensure metadata timestamps and realistic message estimates
     estimated_msgs = estimate_messages_count(cleaned_text)
