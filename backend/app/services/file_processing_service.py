@@ -70,16 +70,75 @@ def parse_sender_from_line(line: str) -> Optional[str]:
     return None
 
 
+def decode_text_file_bytes(file_bytes: bytes, filename: str) -> str:
+    """
+    Decodes text file bytes using BOM detection, Windows Notepad encodings,
+    and safe fallbacks (UTF-8, UTF-8 with BOM, UTF-16 LE, UTF-16 BE, CP1252).
+    Prevents corrupt latin-1 decoding of UTF-16 files.
+    """
+    if not file_bytes or not file_bytes.strip():
+        raise EmptyFileError(f"The file '{filename}' is empty or contains no text.")
+
+    # 1. Explicit BOM detection
+    if file_bytes.startswith(b"\xef\xbb\xbf"):
+        return file_bytes[3:].decode("utf-8", errors="replace")
+    elif file_bytes.startswith(b"\xff\xfe\x00\x00"):
+        return file_bytes[4:].decode("utf-32-le", errors="replace")
+    elif file_bytes.startswith(b"\x00\x00\xfe\xff"):
+        return file_bytes[4:].decode("utf-32-be", errors="replace")
+    elif file_bytes.startswith(b"\xff\xfe"):
+        return file_bytes[2:].decode("utf-16-le", errors="replace")
+    elif file_bytes.startswith(b"\xfe\xff"):
+        return file_bytes[2:].decode("utf-16-be", errors="replace")
+
+    # 2. Heuristic for UTF-16 without BOM (common in Windows Notepad / PowerShell exports)
+    # Detect high frequency of alternating null bytes
+    if len(file_bytes) >= 2 and (file_bytes[1::2].count(b"\x00") > len(file_bytes) // 4):
+        try:
+            decoded = file_bytes.decode("utf-16-le")
+            if "\x00" not in decoded:
+                return decoded
+        except UnicodeDecodeError:
+            pass
+    elif len(file_bytes) >= 2 and (file_bytes[0::2].count(b"\x00") > len(file_bytes) // 4):
+        try:
+            decoded = file_bytes.decode("utf-16-be")
+            if "\x00" not in decoded:
+                return decoded
+        except UnicodeDecodeError:
+            pass
+
+    # 3. Standard UTF-8 without BOM (must not contain null bytes)
+    try:
+        decoded = file_bytes.decode("utf-8")
+        if "\x00" not in decoded:
+            return decoded
+    except UnicodeDecodeError:
+        pass
+
+    # 4. Standard Windows-1252 (ANSI Windows default)
+    try:
+        decoded = file_bytes.decode("cp1252")
+        if "\x00" not in decoded:
+            return decoded
+    except UnicodeDecodeError:
+        pass
+
+    # 5. Latin-1 fallback with null-byte sanitization
+    try:
+        decoded = file_bytes.decode("latin-1", errors="replace")
+        cleaned = decoded.replace("\x00", "")
+        if cleaned.strip():
+            return cleaned
+    except Exception:
+        pass
+
+    raise FileProcessingError(f"Could not decode text file '{filename}'. Please ensure it is saved in a supported text encoding (UTF-8, UTF-16, or ANSI).")
+
+
 def extract_from_txt(file_bytes: bytes, filename: str) -> ExtractedFileContent:
     """Extracts text from TXT or chat export files, supporting multiple encodings."""
-    text = ""
-    for encoding in ("utf-8", "utf-8-sig", "latin-1", "cp1252"):
-        try:
-            text = file_bytes.decode(encoding)
-            break
-        except UnicodeDecodeError:
-            continue
-
+    text = decode_text_file_bytes(file_bytes, filename)
     if not text or not text.strip():
         raise EmptyFileError(f"The file '{filename}' is empty or contains no text.")
 

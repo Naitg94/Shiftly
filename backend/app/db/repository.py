@@ -23,6 +23,11 @@ logger = logging.getLogger("shiftly.db")
 LOCAL_DB_PATH = os.path.join(os.path.dirname(__file__), "project_memory.db")
 
 
+class DatabaseConfigurationError(Exception):
+    """Raised when required database configuration (e.g. Supabase credentials) is missing in runtime."""
+    pass
+
+
 class ProjectNotFoundError(Exception):
     pass
 
@@ -32,11 +37,12 @@ class AnalysisNotFoundError(Exception):
 
 
 class DatabaseOperationError(Exception):
+    """Raised when a database operation fails."""
     pass
 
 
 def _init_local_db():
-    """Initializes the local SQLite database schema if not already present."""
+    """Initializes the local SQLite database schema for isolated automated tests."""
     conn = sqlite3.connect(LOCAL_DB_PATH)
     conn.execute("PRAGMA foreign_keys = ON")
     cursor = conn.cursor()
@@ -108,24 +114,30 @@ def _init_local_db():
     conn.close()
 
 
-# Ensure local database schema is ready
-_init_local_db()
-
-
 class ProjectMemoryRepository:
     """
-    Unified repository supporting Supabase PostgreSQL with seamless,
-    deterministic local storage fallback for testing and offline development.
+    Project Memory Repository.
+    Production / Runtime: Uses Supabase PostgreSQL PostgREST as the Single Source of Truth.
+    Automated Testing: SQLite is available ONLY when explicitly activated for isolated tests.
+    Zero split-brain: When Supabase is configured, local SQLite is NEVER read from or written to.
     """
 
-    def __init__(self):
-        self.supabase_url = settings.SUPABASE_URL.rstrip('/') if settings.SUPABASE_URL else ""
-        self.supabase_key = settings.SUPABASE_ANON_KEY if settings.SUPABASE_ANON_KEY else ""
-        self.is_supabase_configured = bool(self.supabase_url and self.supabase_key)
-        if self.is_supabase_configured:
-            logger.info("Project Memory initialized using Supabase PostgreSQL client.")
+    def __init__(self, use_sqlite_for_tests: Optional[bool] = None):
+        if use_sqlite_for_tests is not None:
+            self.use_sqlite_for_tests = use_sqlite_for_tests
         else:
-            logger.info("Project Memory initialized using local relational storage (test/dev fallback).")
+            self.use_sqlite_for_tests = os.getenv("TEST_USE_SQLITE", "false").lower() == "true"
+        self._reload_config()
+
+    def _reload_config(self):
+        self.supabase_url = (settings.SUPABASE_URL or os.getenv("SUPABASE_URL", "")).rstrip('/')
+        self.supabase_key = (
+            getattr(settings, "SUPABASE_PUBLISHABLE_KEY", None)
+            or os.getenv("SUPABASE_PUBLISHABLE_KEY")
+            or settings.SUPABASE_ANON_KEY
+            or os.getenv("SUPABASE_ANON_KEY", "")
+        )
+        self.is_supabase_configured = bool(self.supabase_url and self.supabase_key)
 
     def _get_supabase_headers(self) -> dict:
         return {
@@ -135,28 +147,40 @@ class ProjectMemoryRepository:
             "Prefer": "return=representation",
         }
 
+    @property
+    def _active_sqlite_mode(self) -> bool:
+        return self.use_sqlite_for_tests
+
+    def _ensure_configured(self):
+        self._reload_config()
+        if self._active_sqlite_mode:
+            return
+        if not self.is_supabase_configured:
+            raise DatabaseConfigurationError(
+                "Supabase configuration is missing. Project Memory requires SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in backend/.env."
+            )
+
     # =========================================================================
     # PROJECT OPERATIONS
     # =========================================================================
 
     def create_project(self, name: str, description: Optional[str] = None) -> Project:
+        self._ensure_configured()
         project_id = str(uuid.uuid4())
         now_str = datetime.utcnow().isoformat() + "Z"
 
-        if self.is_supabase_configured:
+        if not self._active_sqlite_mode:
+            url = f"{self.supabase_url}/rest/v1/projects"
+            payload = {
+                "id": project_id,
+                "name": name,
+                "description": description,
+                "created_at": now_str,
+                "updated_at": now_str,
+            }
             try:
-                url = f"{self.supabase_url}/rest/v1/projects"
-                payload = {
-                    "id": project_id,
-                    "name": name,
-                    "description": description,
-                    "created_at": now_str,
-                    "updated_at": now_str,
-                }
                 res = httpx.post(url, headers=self._get_supabase_headers(), json=payload, timeout=10.0)
                 if res.status_code in (200, 201):
-                    # Also mirror locally for cache resilience
-                    self._save_project_locally(project_id, name, description, now_str)
                     return Project(
                         id=project_id,
                         name=name,
@@ -165,14 +189,14 @@ class ProjectMemoryRepository:
                         updated_at=now_str,
                         analyses_count=0,
                     )
-                else:
-                    logger.warning(f"Supabase write returned {res.status_code}: {res.text}")
-            except Exception as e:
-                logger.warning(f"Supabase write failed ({e}); recording in local storage.")
+                raise DatabaseOperationError(f"Supabase create_project failed (HTTP {res.status_code}): {res.text}")
+            except httpx.RequestError as e:
+                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
 
         return self._save_project_locally(project_id, name, description, now_str)
 
     def _save_project_locally(self, project_id: str, name: str, description: Optional[str], now_str: str) -> Project:
+        _init_local_db()
         conn = sqlite3.connect(LOCAL_DB_PATH)
         try:
             conn.execute("PRAGMA foreign_keys = ON")
@@ -191,20 +215,22 @@ class ProjectMemoryRepository:
                 analyses_count=0,
             )
         except Exception as e:
-            raise DatabaseOperationError(f"Failed to create project: {str(e)}") from e
+            raise DatabaseOperationError(f"Failed to create project in test DB: {str(e)}") from e
         finally:
             conn.close()
 
     def list_projects(self) -> List[Project]:
-        if self.is_supabase_configured:
+        self._ensure_configured()
+
+        if not self._active_sqlite_mode:
+            url = f"{self.supabase_url}/rest/v1/projects?select=*,analyses(count)&order=created_at.desc"
             try:
-                url = f"{self.supabase_url}/rest/v1/projects?select=*,analyses(count)&order=created_at.desc"
                 res = httpx.get(url, headers=self._get_supabase_headers(), timeout=10.0)
                 if res.status_code == 200:
                     projects_data = res.json()
                     projects: List[Project] = []
                     for row in projects_data:
-                        count = row.get("analyses", [{}])[0].get("count", 0) if isinstance(row.get("analyses"), list) else 0
+                        count = row.get("analyses", [{}])[0].get("count", 0) if isinstance(row.get("analyses"), list) and row.get("analyses") else 0
                         projects.append(
                             Project(
                                 id=row["id"],
@@ -216,11 +242,11 @@ class ProjectMemoryRepository:
                             )
                         )
                     return projects
-                else:
-                    logger.warning(f"Supabase read returned {res.status_code}: {res.text}")
-            except Exception as e:
-                logger.warning(f"Supabase read failed ({e}); falling back to local storage.")
+                raise DatabaseOperationError(f"Supabase list_projects failed (HTTP {res.status_code}): {res.text}")
+            except httpx.RequestError as e:
+                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
 
+        _init_local_db()
         conn = sqlite3.connect(LOCAL_DB_PATH)
         try:
             cursor = conn.cursor()
@@ -247,13 +273,18 @@ class ProjectMemoryRepository:
             conn.close()
 
     def get_project(self, project_id: str) -> Optional[Project]:
-        if self.is_supabase_configured:
+        self._ensure_configured()
+
+        if not self._active_sqlite_mode:
+            url = f"{self.supabase_url}/rest/v1/projects?id=eq.{project_id}&select=*,analyses(count)"
             try:
-                url = f"{self.supabase_url}/rest/v1/projects?id=eq.{project_id}&select=*,analyses(count)"
                 res = httpx.get(url, headers=self._get_supabase_headers(), timeout=10.0)
-                if res.status_code == 200 and res.json():
-                    row = res.json()[0]
-                    count = row.get("analyses", [{}])[0].get("count", 0) if isinstance(row.get("analyses"), list) else 0
+                if res.status_code == 200:
+                    rows = res.json()
+                    if not rows:
+                        return None
+                    row = rows[0]
+                    count = row.get("analyses", [{}])[0].get("count", 0) if isinstance(row.get("analyses"), list) and row.get("analyses") else 0
                     return Project(
                         id=row["id"],
                         name=row["name"],
@@ -262,9 +293,11 @@ class ProjectMemoryRepository:
                         updated_at=row["updated_at"],
                         analyses_count=count,
                     )
-            except Exception as e:
-                logger.warning(f"Supabase get_project failed ({e}); reading local storage.")
+                raise DatabaseOperationError(f"Supabase get_project failed (HTTP {res.status_code}): {res.text}")
+            except httpx.RequestError as e:
+                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
 
+        _init_local_db()
         conn = sqlite3.connect(LOCAL_DB_PATH)
         try:
             cursor = conn.cursor()
@@ -289,11 +322,38 @@ class ProjectMemoryRepository:
         finally:
             conn.close()
 
+    def delete_project(self, project_id: str) -> bool:
+        self._ensure_configured()
+        project = self.get_project(project_id)
+        if not project:
+            raise ProjectNotFoundError(f"Project '{project_id}' not found.")
+
+        if not self._active_sqlite_mode:
+            url = f"{self.supabase_url}/rest/v1/projects?id=eq.{project_id}"
+            try:
+                res = httpx.delete(url, headers=self._get_supabase_headers(), timeout=10.0)
+                if res.status_code in (200, 204):
+                    return True
+                raise DatabaseOperationError(f"Supabase delete_project failed (HTTP {res.status_code}): {res.text}")
+            except httpx.RequestError as e:
+                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
+
+        _init_local_db()
+        conn = sqlite3.connect(LOCAL_DB_PATH)
+        try:
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
     # =========================================================================
     # ANALYSIS PERSISTENCE & RETRIEVAL
     # =========================================================================
 
     def save_analysis(self, project_id: str, result: ShiftlyAnalysisResult) -> StoredAnalysisSummary:
+        self._ensure_configured()
         project = self.get_project(project_id)
         if not project:
             raise ProjectNotFoundError(f"Project with ID '{project_id}' does not exist.")
@@ -301,7 +361,6 @@ class ProjectMemoryRepository:
         analysis_id = result.id if result.id else str(uuid.uuid4())
         now_str = datetime.utcnow().isoformat() + "Z"
 
-        # Determine primary source metadata
         source_type = "Chat Export"
         source_name = None
         for kp in result.keyPoints:
@@ -310,10 +369,7 @@ class ProjectMemoryRepository:
                 source_name = kp.source.sourceName
                 break
 
-        stats_json = result.stats.model_dump_json()
-
-        # If Supabase is configured, write directly to Supabase
-        if self.is_supabase_configured:
+        if not self._active_sqlite_mode:
             try:
                 headers = {**self._get_supabase_headers(), "Prefer": "resolution=merge-duplicates"}
                 analysis_payload = {
@@ -323,115 +379,122 @@ class ProjectMemoryRepository:
                     "source_type": source_type,
                     "source_name": source_name,
                     "summary": result.summary,
-                    "stats": stats_json,
+                    "stats": result.stats.model_dump(),
                     "created_at": now_str,
                     "updated_at": now_str,
                 }
                 a_res = httpx.post(f"{self.supabase_url}/rest/v1/analyses", headers=headers, json=analysis_payload, timeout=10.0)
-                if a_res.status_code in (200, 201):
-                    # Delete any previous children for this analysis if re-saving
-                    del_hdr = self._get_supabase_headers()
-                    httpx.delete(f"{self.supabase_url}/rest/v1/key_points?analysis_id=eq.{analysis_id}", headers=del_hdr, timeout=10.0)
-                    httpx.delete(f"{self.supabase_url}/rest/v1/action_items?analysis_id=eq.{analysis_id}", headers=del_hdr, timeout=10.0)
-                    httpx.delete(f"{self.supabase_url}/rest/v1/decisions?analysis_id=eq.{analysis_id}", headers=del_hdr, timeout=10.0)
-                    httpx.delete(f"{self.supabase_url}/rest/v1/important_dates?analysis_id=eq.{analysis_id}", headers=del_hdr, timeout=10.0)
+                if a_res.status_code not in (200, 201):
+                    raise DatabaseOperationError(f"Supabase save_analysis failed (HTTP {a_res.status_code}): {a_res.text}")
 
-                    # Batch insert Key Points
-                    if result.keyPoints:
-                        kp_records = [
-                            {
-                                "id": f"{analysis_id}_{kp.id}",
-                                "analysis_id": analysis_id,
-                                "content": kp.point,
-                                "topic": kp.category,
-                                "source_reference": kp.source.model_dump_json(),
-                                "created_at": now_str,
-                            }
-                            for kp in result.keyPoints
-                        ]
-                        httpx.post(f"{self.supabase_url}/rest/v1/key_points", headers=headers, json=kp_records, timeout=10.0)
+                # Delete previous children if overwriting
+                del_hdr = self._get_supabase_headers()
+                httpx.delete(f"{self.supabase_url}/rest/v1/key_points?analysis_id=eq.{analysis_id}", headers=del_hdr, timeout=10.0)
+                httpx.delete(f"{self.supabase_url}/rest/v1/action_items?analysis_id=eq.{analysis_id}", headers=del_hdr, timeout=10.0)
+                httpx.delete(f"{self.supabase_url}/rest/v1/decisions?analysis_id=eq.{analysis_id}", headers=del_hdr, timeout=10.0)
+                httpx.delete(f"{self.supabase_url}/rest/v1/important_dates?analysis_id=eq.{analysis_id}", headers=del_hdr, timeout=10.0)
 
-                    # Batch insert Action Items
-                    if result.actions:
-                        act_records = [
-                            {
-                                "id": f"{analysis_id}_{act.id}",
-                                "analysis_id": analysis_id,
-                                "content": act.action,
-                                "responsible_person": act.responsiblePerson,
-                                "due_date": act.deadline,
-                                "status": "Pending",
-                                "priority": act.priority or "Normal",
-                                "source_reference": act.source.model_dump_json(),
-                                "created_at": now_str,
-                            }
-                            for act in result.actions
-                        ]
-                        httpx.post(f"{self.supabase_url}/rest/v1/action_items", headers=headers, json=act_records, timeout=10.0)
+                # Batch insert Key Points
+                if result.keyPoints:
+                    kp_records = [
+                        {
+                            "id": f"{analysis_id}_{kp.id}",
+                            "analysis_id": analysis_id,
+                            "content": kp.point,
+                            "topic": kp.category,
+                            "source_reference": kp.source.model_dump(),
+                            "created_at": now_str,
+                        }
+                        for kp in result.keyPoints
+                    ]
+                    kp_res = httpx.post(f"{self.supabase_url}/rest/v1/key_points", headers=headers, json=kp_records, timeout=10.0)
+                    if kp_res.status_code not in (200, 201):
+                        raise DatabaseOperationError(f"Supabase save key_points failed (HTTP {kp_res.status_code}): {kp_res.text}")
 
-                    # Batch insert Decisions
-                    if result.decisions:
-                        dec_records = [
-                            {
-                                "id": f"{analysis_id}_{dec.id}",
-                                "analysis_id": analysis_id,
-                                "content": dec.decision,
-                                "decision_type": "Approval",
-                                "approved_by": dec.approvedBy,
-                                "date": dec.date,
-                                "source_reference": dec.source.model_dump_json(),
-                                "created_at": now_str,
-                            }
-                            for dec in result.decisions
-                        ]
-                        httpx.post(f"{self.supabase_url}/rest/v1/decisions", headers=headers, json=dec_records, timeout=10.0)
+                # Batch insert Action Items
+                if result.actions:
+                    act_records = [
+                        {
+                            "id": f"{analysis_id}_{act.id}",
+                            "analysis_id": analysis_id,
+                            "content": act.action,
+                            "responsible_person": act.responsiblePerson,
+                            "due_date": act.deadline,
+                            "status": "Pending",
+                            "priority": act.priority or "Normal",
+                            "source_reference": act.source.model_dump(),
+                            "created_at": now_str,
+                        }
+                        for act in result.actions
+                    ]
+                    act_res = httpx.post(f"{self.supabase_url}/rest/v1/action_items", headers=headers, json=act_records, timeout=10.0)
+                    if act_res.status_code not in (200, 201):
+                        raise DatabaseOperationError(f"Supabase save action_items failed (HTTP {act_res.status_code}): {act_res.text}")
 
-                    # Batch insert Important Dates
-                    if result.importantDates:
-                        dt_records = [
-                            {
-                                "id": f"{analysis_id}_{dt.id}",
-                                "analysis_id": analysis_id,
-                                "label": dt.title,
-                                "date": dt.date,
-                                "description": dt.significance,
-                                "source_reference": dt.source.model_dump_json(),
-                                "created_at": now_str,
-                            }
-                            for dt in result.importantDates
-                        ]
-                        httpx.post(f"{self.supabase_url}/rest/v1/important_dates", headers=headers, json=dt_records, timeout=10.0)
+                # Batch insert Decisions
+                if result.decisions:
+                    dec_records = [
+                        {
+                            "id": f"{analysis_id}_{dec.id}",
+                            "analysis_id": analysis_id,
+                            "content": dec.decision,
+                            "decision_type": "Approval",
+                            "approved_by": dec.approvedBy,
+                            "date": dec.date,
+                            "source_reference": dec.source.model_dump(),
+                            "created_at": now_str,
+                        }
+                        for dec in result.decisions
+                    ]
+                    dec_res = httpx.post(f"{self.supabase_url}/rest/v1/decisions", headers=headers, json=dec_records, timeout=10.0)
+                    if dec_res.status_code not in (200, 201):
+                        raise DatabaseOperationError(f"Supabase save decisions failed (HTTP {dec_res.status_code}): {dec_res.text}")
 
-                    # Also mirror in local DB for fallback
-                    self._save_analysis_locally(project_id, analysis_id, result, source_type, source_name, stats_json, now_str)
+                # Batch insert Important Dates
+                if result.importantDates:
+                    dt_records = [
+                        {
+                            "id": f"{analysis_id}_{dt.id}",
+                            "analysis_id": analysis_id,
+                            "label": dt.title,
+                            "date": dt.date,
+                            "description": dt.significance,
+                            "source_reference": dt.source.model_dump(),
+                            "created_at": now_str,
+                        }
+                        for dt in result.importantDates
+                    ]
+                    dt_res = httpx.post(f"{self.supabase_url}/rest/v1/important_dates", headers=headers, json=dt_records, timeout=10.0)
+                    if dt_res.status_code not in (200, 201):
+                        raise DatabaseOperationError(f"Supabase save important_dates failed (HTTP {dt_res.status_code}): {dt_res.text}")
 
-                    return StoredAnalysisSummary(
-                        id=analysis_id,
-                        project_id=project_id,
-                        title=result.title,
-                        source_type=source_type,
-                        source_name=source_name,
-                        summary=result.summary,
-                        created_at=now_str,
-                        key_points_count=len(result.keyPoints),
-                        actions_count=len(result.actions),
-                        decisions_count=len(result.decisions),
-                        important_dates_count=len(result.importantDates),
-                    )
-                else:
-                    logger.warning(f"Supabase save_analysis failed with {a_res.status_code}: {a_res.text}")
-            except Exception as e:
-                logger.warning(f"Supabase save_analysis error ({e}); saving locally.")
+                return StoredAnalysisSummary(
+                    id=analysis_id,
+                    project_id=project_id,
+                    title=result.title,
+                    source_type=source_type,
+                    source_name=source_name,
+                    summary=result.summary,
+                    created_at=now_str,
+                    key_points_count=len(result.keyPoints),
+                    actions_count=len(result.actions),
+                    decisions_count=len(result.decisions),
+                    important_dates_count=len(result.importantDates),
+                )
+            except httpx.RequestError as e:
+                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
 
+        # Test SQLite path
+        stats_json = result.stats.model_dump_json()
         return self._save_analysis_locally(project_id, analysis_id, result, source_type, source_name, stats_json, now_str)
 
     def _save_analysis_locally(self, project_id: str, analysis_id: str, result: ShiftlyAnalysisResult, source_type: str, source_name: Optional[str], stats_json: str, now_str: str) -> StoredAnalysisSummary:
+        _init_local_db()
         conn = sqlite3.connect(LOCAL_DB_PATH)
         try:
             conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.cursor()
 
-            # Transactional atomic save
             cursor.execute("""
                 INSERT INTO analyses (id, project_id, title, source_type, source_name, summary, stats, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -443,13 +506,11 @@ class ProjectMemoryRepository:
                     updated_at=excluded.updated_at
             """, (analysis_id, project_id, result.title, source_type, source_name, result.summary, stats_json, now_str, now_str))
 
-            # Clear existing children if updating
             cursor.execute("DELETE FROM key_points WHERE analysis_id = ?", (analysis_id,))
             cursor.execute("DELETE FROM action_items WHERE analysis_id = ?", (analysis_id,))
             cursor.execute("DELETE FROM decisions WHERE analysis_id = ?", (analysis_id,))
             cursor.execute("DELETE FROM important_dates WHERE analysis_id = ?", (analysis_id,))
 
-            # Save Key Points
             for kp in result.keyPoints:
                 src_json = kp.source.model_dump_json()
                 kp_row_id = f"{analysis_id}_{kp.id}"
@@ -458,7 +519,6 @@ class ProjectMemoryRepository:
                     (kp_row_id, analysis_id, kp.point, kp.category, src_json, now_str),
                 )
 
-            # Save Actions
             for act in result.actions:
                 src_json = act.source.model_dump_json()
                 act_row_id = f"{analysis_id}_{act.id}"
@@ -467,7 +527,6 @@ class ProjectMemoryRepository:
                     (act_row_id, analysis_id, act.action, act.responsiblePerson, act.deadline, "Pending", act.priority or "Normal", src_json, now_str),
                 )
 
-            # Save Decisions
             for dec in result.decisions:
                 src_json = dec.source.model_dump_json()
                 dec_row_id = f"{analysis_id}_{dec.id}"
@@ -476,7 +535,6 @@ class ProjectMemoryRepository:
                     (dec_row_id, analysis_id, dec.decision, "Approval", dec.approvedBy, dec.date, src_json, now_str),
                 )
 
-            # Save Important Dates
             for dt in result.importantDates:
                 src_json = dt.source.model_dump_json()
                 dt_row_id = f"{analysis_id}_{dt.id}"
@@ -486,7 +544,6 @@ class ProjectMemoryRepository:
                 )
 
             conn.commit()
-
             return StoredAnalysisSummary(
                 id=analysis_id,
                 project_id=project_id,
@@ -502,27 +559,28 @@ class ProjectMemoryRepository:
             )
         except Exception as e:
             conn.rollback()
-            raise DatabaseOperationError(f"Failed to save analysis to project memory: {str(e)}") from e
+            raise DatabaseOperationError(f"Failed to save analysis to test DB: {str(e)}") from e
         finally:
             conn.close()
 
     def list_project_analyses(self, project_id: str) -> List[StoredAnalysisSummary]:
+        self._ensure_configured()
         project = self.get_project(project_id)
         if not project:
             raise ProjectNotFoundError(f"Project '{project_id}' not found.")
 
-        if self.is_supabase_configured:
+        if not self._active_sqlite_mode:
+            url = f"{self.supabase_url}/rest/v1/analyses?project_id=eq.{project_id}&select=*,key_points(count),action_items(count),decisions(count),important_dates(count)&order=created_at.desc"
             try:
-                url = f"{self.supabase_url}/rest/v1/analyses?project_id=eq.{project_id}&select=*,key_points(count),action_items(count),decisions(count),important_dates(count)&order=created_at.desc"
                 res = httpx.get(url, headers=self._get_supabase_headers(), timeout=10.0)
                 if res.status_code == 200:
                     rows = res.json()
                     analyses: List[StoredAnalysisSummary] = []
                     for r in rows:
-                        kp_c = r.get("key_points", [{}])[0].get("count", 0) if isinstance(r.get("key_points"), list) else 0
-                        act_c = r.get("action_items", [{}])[0].get("count", 0) if isinstance(r.get("action_items"), list) else 0
-                        dec_c = r.get("decisions", [{}])[0].get("count", 0) if isinstance(r.get("decisions"), list) else 0
-                        dt_c = r.get("important_dates", [{}])[0].get("count", 0) if isinstance(r.get("important_dates"), list) else 0
+                        kp_c = r.get("key_points", [{}])[0].get("count", 0) if isinstance(r.get("key_points"), list) and r.get("key_points") else 0
+                        act_c = r.get("action_items", [{}])[0].get("count", 0) if isinstance(r.get("action_items"), list) and r.get("action_items") else 0
+                        dec_c = r.get("decisions", [{}])[0].get("count", 0) if isinstance(r.get("decisions"), list) and r.get("decisions") else 0
+                        dt_c = r.get("important_dates", [{}])[0].get("count", 0) if isinstance(r.get("important_dates"), list) and r.get("important_dates") else 0
                         analyses.append(
                             StoredAnalysisSummary(
                                 id=r["id"],
@@ -539,9 +597,11 @@ class ProjectMemoryRepository:
                             )
                         )
                     return analyses
-            except Exception as e:
-                logger.warning(f"Supabase list_analyses error ({e}); falling back to local storage.")
+                raise DatabaseOperationError(f"Supabase list_project_analyses failed (HTTP {res.status_code}): {res.text}")
+            except httpx.RequestError as e:
+                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
 
+        _init_local_db()
         conn = sqlite3.connect(LOCAL_DB_PATH)
         try:
             cursor = conn.cursor()
@@ -577,12 +637,17 @@ class ProjectMemoryRepository:
             conn.close()
 
     def get_analysis(self, project_id: str, analysis_id: str) -> Optional[ShiftlyAnalysisResult]:
-        if self.is_supabase_configured:
+        self._ensure_configured()
+
+        if not self._active_sqlite_mode:
+            url = f"{self.supabase_url}/rest/v1/analyses?id=eq.{analysis_id}&project_id=eq.{project_id}&select=*,key_points(*),action_items(*),decisions(*),important_dates(*)"
             try:
-                url = f"{self.supabase_url}/rest/v1/analyses?id=eq.{analysis_id}&project_id=eq.{project_id}&select=*,key_points(*),action_items(*),decisions(*),important_dates(*)"
                 res = httpx.get(url, headers=self._get_supabase_headers(), timeout=10.0)
-                if res.status_code == 200 and res.json():
-                    r = res.json()[0]
+                if res.status_code == 200:
+                    rows = res.json()
+                    if not rows:
+                        return None
+                    r = rows[0]
                     stats = AnalysisStats.model_validate_json(r["stats"]) if isinstance(r["stats"], str) else AnalysisStats.model_validate(r["stats"])
                     prefix = f"{analysis_id}_"
                     key_points = [
@@ -636,9 +701,11 @@ class ProjectMemoryRepository:
                         decisions=decisions,
                         importantDates=important_dates,
                     )
-            except Exception as e:
-                logger.warning(f"Supabase get_analysis failed ({e}); checking local storage.")
+                raise DatabaseOperationError(f"Supabase get_analysis failed (HTTP {res.status_code}): {res.text}")
+            except httpx.RequestError as e:
+                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
 
+        _init_local_db()
         conn = sqlite3.connect(LOCAL_DB_PATH)
         try:
             cursor = conn.cursor()
@@ -722,15 +789,15 @@ class ProjectMemoryRepository:
     # =========================================================================
 
     def search_project_memory(self, project_id: str, query: str) -> List[SearchResultItem]:
+        self._ensure_configured()
         clean_q = query.strip().lower()
         if not clean_q:
             return []
 
-        # Try Supabase if configured
-        if self.is_supabase_configured:
+        if not self._active_sqlite_mode:
+            results: List[SearchResultItem] = []
+            headers = self._get_supabase_headers()
             try:
-                results: List[SearchResultItem] = []
-                headers = self._get_supabase_headers()
                 # 1. Key points search
                 kp_url = f"{self.supabase_url}/rest/v1/key_points?select=content,source_reference,created_at,analyses!inner(id,title,project_id)&analyses.project_id=eq.{project_id}&content=ilike.*{clean_q}*"
                 res = httpx.get(kp_url, headers=headers, timeout=10.0)
@@ -747,8 +814,9 @@ class ProjectMemoryRepository:
                                 created_at=r["created_at"],
                             )
                         )
+
                 # 2. Action items search
-                act_url = f"{self.supabase_url}/rest/v1/action_items?select=content,responsible_person,source_reference,created_at,analyses!inner(id,title,project_id)&analyses.project_id=eq.{project_id}&content=ilike.*{clean_q}*"
+                act_url = f"{self.supabase_url}/rest/v1/action_items?select=content,responsible_person,source_reference,created_at,analyses!inner(id,title,project_id)&analyses.project_id=eq.{project_id}&or=(content.ilike.*{clean_q}*,responsible_person.ilike.*{clean_q}*)"
                 res = httpx.get(act_url, headers=headers, timeout=10.0)
                 if res.status_code == 200:
                     for r in res.json():
@@ -763,18 +831,69 @@ class ProjectMemoryRepository:
                                 created_at=r["created_at"],
                             )
                         )
-                if results:
-                    return results
-            except Exception as e:
-                logger.warning(f"Supabase search error ({e}); using local storage.")
 
+                # 3. Decisions search
+                dec_url = f"{self.supabase_url}/rest/v1/decisions?select=content,approved_by,source_reference,created_at,analyses!inner(id,title,project_id)&analyses.project_id=eq.{project_id}&or=(content.ilike.*{clean_q}*,approved_by.ilike.*{clean_q}*)"
+                res = httpx.get(dec_url, headers=headers, timeout=10.0)
+                if res.status_code == 200:
+                    for r in res.json():
+                        src = SourceReference.model_validate_json(r["source_reference"]) if isinstance(r["source_reference"], str) else SourceReference.model_validate(r["source_reference"])
+                        results.append(
+                            SearchResultItem(
+                                analysis_id=r["analyses"]["id"],
+                                analysis_title=r["analyses"]["title"],
+                                item_type="Decision",
+                                content=r["content"],
+                                source_reference=src,
+                                created_at=r["created_at"],
+                            )
+                        )
+
+                # 4. Important dates search
+                dt_url = f"{self.supabase_url}/rest/v1/important_dates?select=label,date,description,source_reference,created_at,analyses!inner(id,title,project_id)&analyses.project_id=eq.{project_id}&or=(label.ilike.*{clean_q}*,date.ilike.*{clean_q}*,description.ilike.*{clean_q}*)"
+                res = httpx.get(dt_url, headers=headers, timeout=10.0)
+                if res.status_code == 200:
+                    for r in res.json():
+                        src = SourceReference.model_validate_json(r["source_reference"]) if isinstance(r["source_reference"], str) else SourceReference.model_validate(r["source_reference"])
+                        results.append(
+                            SearchResultItem(
+                                analysis_id=r["analyses"]["id"],
+                                analysis_title=r["analyses"]["title"],
+                                item_type="Date",
+                                content=f"{r['label']} ({r['date']}) — {r['description']}",
+                                source_reference=src,
+                                created_at=r["created_at"],
+                            )
+                        )
+
+                # 5. Analyses summary search
+                a_url = f"{self.supabase_url}/rest/v1/analyses?select=id,title,summary,created_at&project_id=eq.{project_id}&summary=ilike.*{clean_q}*"
+                res = httpx.get(a_url, headers=headers, timeout=10.0)
+                if res.status_code == 200:
+                    for r in res.json():
+                        results.append(
+                            SearchResultItem(
+                                analysis_id=r["id"],
+                                analysis_title=r["title"],
+                                item_type="Summary",
+                                content=r["summary"],
+                                source_reference=None,
+                                created_at=r["created_at"],
+                            )
+                        )
+
+                return results
+            except httpx.RequestError as e:
+                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
+
+        # Test SQLite path
+        _init_local_db()
         conn = sqlite3.connect(LOCAL_DB_PATH)
         try:
             cursor = conn.cursor()
             results: List[SearchResultItem] = []
             param = f"%{clean_q}%"
 
-            # 1. Search in Key Points
             cursor.execute("""
                 SELECT a.id, a.title, kp.content, kp.source_reference, kp.created_at
                 FROM key_points kp
@@ -794,7 +913,6 @@ class ProjectMemoryRepository:
                     )
                 )
 
-            # 2. Search in Actions
             cursor.execute("""
                 SELECT a.id, a.title, act.content, act.responsible_person, act.source_reference, act.created_at
                 FROM action_items act
@@ -815,7 +933,6 @@ class ProjectMemoryRepository:
                     )
                 )
 
-            # 3. Search in Decisions
             cursor.execute("""
                 SELECT a.id, a.title, dec.content, dec.approved_by, dec.source_reference, dec.created_at
                 FROM decisions dec
@@ -835,7 +952,6 @@ class ProjectMemoryRepository:
                     )
                 )
 
-            # 4. Search in Important Dates
             cursor.execute("""
                 SELECT a.id, a.title, dt.label, dt.date, dt.description, dt.source_reference, dt.created_at
                 FROM important_dates dt
@@ -855,7 +971,6 @@ class ProjectMemoryRepository:
                     )
                 )
 
-            # 5. Search in Summary
             cursor.execute("""
                 SELECT a.id, a.title, a.summary, a.created_at
                 FROM analyses a
@@ -881,4 +996,3 @@ class ProjectMemoryRepository:
 
 # Singleton repository instance
 memory_repo = ProjectMemoryRepository()
-

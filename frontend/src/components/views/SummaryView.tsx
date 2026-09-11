@@ -28,28 +28,51 @@ export default function SummaryView({ result }: SummaryViewProps) {
         </p>
       </div>
 
-      {/* Highlights Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="rounded-xl border border-slate-800/80 bg-slate-900/30 p-4 space-y-1.5">
-          <div className="flex items-center gap-2 text-xs font-medium text-emerald-400">
-            <CheckCircle2 className="h-4 w-4" />
-            <span>Primary Resolution</span>
-          </div>
-          <p className="text-xs text-slate-300">
-            Triple-pane glazing upgrade approved (+ $14.2k) preserving November 3 delivery schedule.
-          </p>
-        </div>
+      {/* Highlights Grid derived strictly from live results */}
+      {(result.decisions.length > 0 || result.importantDates.length > 0 || result.actions.length > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {result.decisions.length > 0 && (
+            <div className="rounded-xl border border-slate-800/80 bg-slate-900/30 p-4 space-y-1.5">
+              <div className="flex items-center gap-2 text-xs font-medium text-emerald-400">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Primary Resolution</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {result.decisions[0].decision}
+                {result.decisions[0].approvedBy && result.decisions[0].approvedBy !== "Unknown" && (
+                  <span className="text-slate-500 ml-1.5">(Approved by {result.decisions[0].approvedBy})</span>
+                )}
+              </p>
+            </div>
+          )}
 
-        <div className="rounded-xl border border-slate-800/80 bg-slate-900/30 p-4 space-y-1.5">
-          <div className="flex items-center gap-2 text-xs font-medium text-amber-400">
-            <Clock className="h-4 w-4" />
-            <span>Immediate Milestone</span>
-          </div>
-          <p className="text-xs text-slate-300">
-            Rebar inspection report sign-off required by Oct 14 noon to enable Oct 15 slab pour.
-          </p>
+          {result.importantDates.length > 0 ? (
+            <div className="rounded-xl border border-slate-800/80 bg-slate-900/30 p-4 space-y-1.5">
+              <div className="flex items-center gap-2 text-xs font-medium text-amber-400">
+                <Clock className="h-4 w-4" />
+                <span>Key Milestone</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                <span className="font-mono text-amber-300 mr-1.5">{result.importantDates[0].date}</span>
+                — {result.importantDates[0].title}
+              </p>
+            </div>
+          ) : result.actions.length > 0 ? (
+            <div className="rounded-xl border border-slate-800/80 bg-slate-900/30 p-4 space-y-1.5">
+              <div className="flex items-center gap-2 text-xs font-medium text-amber-400">
+                <Clock className="h-4 w-4" />
+                <span>Immediate Action</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {result.actions[0].action}
+                {result.actions[0].responsiblePerson && result.actions[0].responsiblePerson !== "Unassigned" && (
+                  <span className="text-slate-500 ml-1.5">({result.actions[0].responsiblePerson})</span>
+                )}
+              </p>
+            </div>
+          ) : null}
         </div>
-      </div>
+      )}
     </div>
   );
 }

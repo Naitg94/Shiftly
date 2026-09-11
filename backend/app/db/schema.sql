@@ -75,3 +75,35 @@ CREATE INDEX IF NOT EXISTS idx_key_points_analysis_id ON key_points(analysis_id)
 CREATE INDEX IF NOT EXISTS idx_action_items_analysis_id ON action_items(analysis_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_analysis_id ON decisions(analysis_id);
 CREATE INDEX IF NOT EXISTS idx_important_dates_analysis_id ON important_dates(analysis_id);
+
+-- Row Level Security (RLS) Policies
+-- Since all Shiftly traffic is mediated exclusively through the FastAPI backend:
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE analyses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE key_points ENABLE ROW LEVEL SECURITY;
+ALTER TABLE action_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE decisions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE important_dates ENABLE ROW LEVEL SECURITY;
+
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'projects' AND policyname = 'Allow backend access to projects') THEN
+        CREATE POLICY "Allow backend access to projects" ON projects FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'analyses' AND policyname = 'Allow backend access to analyses') THEN
+        CREATE POLICY "Allow backend access to analyses" ON analyses FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'key_points' AND policyname = 'Allow backend access to key_points') THEN
+        CREATE POLICY "Allow backend access to key_points" ON key_points FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'action_items' AND policyname = 'Allow backend access to action_items') THEN
+        CREATE POLICY "Allow backend access to action_items" ON action_items FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'decisions' AND policyname = 'Allow backend access to decisions') THEN
+        CREATE POLICY "Allow backend access to decisions" ON decisions FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'important_dates' AND policyname = 'Allow backend access to important_dates') THEN
+        CREATE POLICY "Allow backend access to important_dates" ON important_dates FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+

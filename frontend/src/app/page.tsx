@@ -13,13 +13,32 @@ import { Layers } from "lucide-react";
 type AppStage = "input" | "processing" | "results";
 type MainTab = "analyze" | "memory";
 
+const EMPTY_ANALYSIS_RESULT: ShiftlyAnalysisResult = {
+  id: "",
+  title: "Untitled Analysis",
+  analyzedAt: "",
+  stats: {
+    messagesAnalyzed: 0,
+    participantsCount: 0,
+    keyPointsCount: 0,
+    actionsCount: 0,
+    decisionsCount: 0,
+    importantDatesCount: 0,
+  },
+  summary: "",
+  keyPoints: [],
+  actions: [],
+  decisions: [],
+  importantDates: [],
+};
+
 export default function Home() {
   const [mainTab, setMainTab] = useState<MainTab>("analyze");
   const [stage, setStage] = useState<AppStage>("input");
   const [inputText, setInputText] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [activeTab, setActiveTab] = useState<"paste" | "upload">("paste");
-  const [analysisResult, setAnalysisResult] = useState<ShiftlyAnalysisResult>(MOCK_ANALYSIS_RESULT);
+  const [analysisResult, setAnalysisResult] = useState<ShiftlyAnalysisResult>(EMPTY_ANALYSIS_RESULT);
   const [isApiDone, setIsApiDone] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -93,9 +112,12 @@ export default function Home() {
 
   const handleReset = () => {
     setStage("input");
+    setInputText("");
+    setSelectedFile(null);
     setErrorMessage(null);
     setIsApiDone(false);
     setIsViewingMemoryResult(false);
+    setAnalysisResult(EMPTY_ANALYSIS_RESULT);
   };
 
   const handleUseDemoPreset = () => {
@@ -122,6 +144,7 @@ export default function Home() {
       <Navbar
         activeTab={mainTab}
         onTabChange={handleTabChange}
+        onReset={handleReset}
       />
 
       {/* Main Content Body */}

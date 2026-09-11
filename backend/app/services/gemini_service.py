@@ -42,6 +42,10 @@ RULES & CORE PRINCIPLES:
    - Do NOT predict missing information.
    - Do NOT generate unsolicited recommendations.
    - Do NOT behave as a conversational chatbot.
+8. DO NOT INVENT DATES OR FACTS:
+   - If the conversation does not contain an explicit date or timestamp, do NOT guess or make up a date (such as 2023 or today's date).
+   - In SourceReference.date: If no explicit message timestamp/date exists in the source text, use '—' or omit.
+   - If a deadline is stated as 'Friday, September 11' or 'tomorrow', preserve that exact text. Never convert it into an arbitrary calendar date (like 2023-09-08).
 """
 
 
@@ -250,6 +254,32 @@ def analyze_communication(
     estimated_msgs = estimate_messages_count(cleaned_text)
     final_result.stats.messagesAnalyzed = max(final_result.stats.messagesAnalyzed, estimated_msgs)
     final_result.analyzedAt = datetime.now().strftime("%B %d, %Y • %I:%M %p")
+
+    # Sanitize hallucinated dates if raw text does not contain any calendar year
+    has_explicit_year = bool(re.search(r"\b(20\d{2}|19\d{2})\b", cleaned_text))
+    if not has_explicit_year:
+        for kp in final_result.keyPoints:
+            if kp.source and kp.source.date and re.search(r"\b(20\d{2}|19\d{2})\b", kp.source.date):
+                kp.source.date = "—"
+        for act in final_result.actions:
+            if act.deadline and re.search(r"\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b", act.deadline):
+                # If deadline was converted to e.g. 2023-09-11, check if text has the month/day name
+                cleaned_deadline = re.sub(r"\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b", "", act.deadline).strip(" ,-")
+                act.deadline = cleaned_deadline if cleaned_deadline else None
+            if act.source and act.source.date and re.search(r"\b(20\d{2}|19\d{2})\b", act.source.date):
+                act.source.date = "—"
+        for dec in final_result.decisions:
+            if dec.date and re.search(r"\b(20\d{2}|19\d{2})\b", dec.date):
+                dec.date = None
+            if dec.source and dec.source.date and re.search(r"\b(20\d{2}|19\d{2})\b", dec.source.date):
+                dec.source.date = "—"
+        for dt in final_result.importantDates:
+            if dt.date and re.search(r"\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b", dt.date):
+                cleaned_dt = re.sub(r"\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b", "", dt.date).strip(" ,-")
+                if cleaned_dt:
+                    dt.date = cleaned_dt
+            if dt.source and dt.source.date and re.search(r"\b(20\d{2}|19\d{2})\b", dt.source.date):
+                dt.source.date = "—"
 
     return final_result
 

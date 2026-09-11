@@ -7,6 +7,7 @@ from app.db.repository import (
     ProjectNotFoundError,
     AnalysisNotFoundError,
     DatabaseOperationError,
+    DatabaseConfigurationError,
 )
 from app.models.schemas import ShiftlyAnalysisResult
 
@@ -31,6 +32,12 @@ def create_project(payload: ProjectCreate) -> Project:
     try:
         project = memory_repo.create_project(name=clean_name, description=payload.description)
         return project
+    except DatabaseConfigurationError as dce:
+        logger.error(f"Database configuration missing: {dce}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(dce),
+        )
     except DatabaseOperationError as doe:
         logger.error(f"Failed to create project: {doe}")
         raise HTTPException(
@@ -48,6 +55,12 @@ def create_project(payload: ProjectCreate) -> Project:
 def list_projects() -> List[Project]:
     try:
         return memory_repo.list_projects()
+    except DatabaseConfigurationError as dce:
+        logger.error(f"Database configuration missing: {dce}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(dce),
+        )
     except Exception as e:
         logger.error(f"Failed to list projects: {e}")
         raise HTTPException(
@@ -63,13 +76,55 @@ def list_projects() -> List[Project]:
     description="Retrieves a specific project by ID.",
 )
 def get_project(project_id: str) -> Project:
-    project = memory_repo.get_project(project_id)
-    if not project:
+    try:
+        project = memory_repo.get_project(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Project with ID '{project_id}' was not found.",
+            )
+        return project
+    except HTTPException:
+        raise
+    except DatabaseConfigurationError as dce:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(dce),
+        )
+    except Exception as e:
+        logger.error(f"Failed to get project: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error retrieving project: {str(e)}",
+        )
+
+
+@router.delete(
+    "/projects/{project_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete Project",
+    description="Deletes a project and cascades deletion to all associated analyses.",
+)
+def delete_project(project_id: str):
+    try:
+        memory_repo.delete_project(project_id)
+        return None
+    except ProjectNotFoundError as pne:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project with ID '{project_id}' was not found.",
+            detail=str(pne),
         )
-    return project
+    except DatabaseConfigurationError as dce:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(dce),
+        )
+    except Exception as e:
+        logger.error(f"Failed to delete project: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error deleting project: {str(e)}",
+        )
 
 
 @router.post(
@@ -83,6 +138,11 @@ def save_analysis(project_id: str, payload: ShiftlyAnalysisResult) -> StoredAnal
     try:
         saved_summary = memory_repo.save_analysis(project_id, payload)
         return saved_summary
+    except DatabaseConfigurationError as dce:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(dce),
+        )
     except ProjectNotFoundError as pne:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -111,6 +171,11 @@ def save_analysis(project_id: str, payload: ShiftlyAnalysisResult) -> StoredAnal
 def list_project_analyses(project_id: str) -> List[StoredAnalysisSummary]:
     try:
         return memory_repo.list_project_analyses(project_id)
+    except DatabaseConfigurationError as dce:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(dce),
+        )
     except ProjectNotFoundError as pne:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -141,6 +206,11 @@ def get_analysis(project_id: str, analysis_id: str) -> ShiftlyAnalysisResult:
         return result
     except HTTPException:
         raise
+    except DatabaseConfigurationError as dce:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(dce),
+        )
     except Exception as e:
         logger.error(f"Failed to get analysis: {e}")
         raise HTTPException(
@@ -159,18 +229,25 @@ def search_project_memory(
     project_id: str,
     q: str = Query(..., min_length=1, description="Text query to search within stored intelligence"),
 ) -> SearchResponse:
-    project = memory_repo.get_project(project_id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project '{project_id}' not found.",
-        )
     try:
+        project = memory_repo.get_project(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Project '{project_id}' not found.",
+            )
         results = memory_repo.search_project_memory(project_id, q)
         return SearchResponse(
             query=q,
             total_results=len(results),
             results=results,
+        )
+    except HTTPException:
+        raise
+    except DatabaseConfigurationError as dce:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(dce),
         )
     except Exception as e:
         logger.error(f"Search failed: {e}")

@@ -24,7 +24,8 @@ class Settings:
 
     # Supabase PostgreSQL Project Memory
     SUPABASE_URL: str | None = os.getenv("SUPABASE_URL")
-    SUPABASE_ANON_KEY: str | None = os.getenv("SUPABASE_ANON_KEY")
+    SUPABASE_PUBLISHABLE_KEY: str | None = os.getenv("SUPABASE_PUBLISHABLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+    SUPABASE_ANON_KEY: str | None = os.getenv("SUPABASE_PUBLISHABLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
 
 
 settings = Settings()

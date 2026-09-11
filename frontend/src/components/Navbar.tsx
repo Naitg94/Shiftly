@@ -5,15 +5,21 @@ import { Sparkles, Database } from "lucide-react";
 interface NavbarProps {
   activeTab: "analyze" | "memory";
   onTabChange: (tab: "analyze" | "memory") => void;
+  onReset?: () => void;
 }
 
-export default function Navbar({ activeTab, onTabChange }: NavbarProps) {
+export default function Navbar({ activeTab, onTabChange, onReset }: NavbarProps) {
+  const handleAnalyzeClick = () => {
+    onTabChange("analyze");
+    onReset?.();
+  };
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-800 bg-slate-950/80 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
         {/* Brand */}
         <div
-          onClick={() => onTabChange("analyze")}
+          onClick={handleAnalyzeClick}
           className="flex cursor-pointer items-center space-x-3 transition-opacity hover:opacity-90"
         >
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white font-bold text-lg shadow-md shadow-blue-500/20">
@@ -33,7 +39,7 @@ export default function Navbar({ activeTab, onTabChange }: NavbarProps) {
         {/* Navigation Items */}
         <nav className="flex items-center gap-2 sm:gap-3 text-sm">
           <button
-            onClick={() => onTabChange("analyze")}
+            onClick={handleAnalyzeClick}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-all ${
               activeTab === "analyze"
                 ? "bg-blue-600/10 text-blue-400 border border-blue-500/20 shadow-sm"

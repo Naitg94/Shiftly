@@ -165,8 +165,37 @@ def test_existing_paste_analyze_regression():
     assert res.status_code in [200, 503]
 
 
+def test_txt_encodings_windows_notepad():
+    sample = "Client: We reviewed the latest design package. Reception desk width reduced by 300 mm.\nArchitect: Revised drawings by Friday, September 11.\n"
+    # 1. UTF-8
+    res_utf8 = extract_from_txt(sample.encode("utf-8"), "notepad_utf8.txt")
+    assert "300 mm" in res_utf8.full_text
+    assert len(res_utf8.blocks) == 2
+
+    # 2. UTF-8 BOM
+    res_bom = extract_from_txt(sample.encode("utf-8-sig"), "notepad_utf8_bom.txt")
+    assert "300 mm" in res_bom.full_text
+    assert len(res_bom.blocks) == 2
+
+    # 3. UTF-16 LE
+    res_utf16le = extract_from_txt(sample.encode("utf-16-le"), "notepad_utf16_le.txt")
+    assert "300 mm" in res_utf16le.full_text
+    assert len(res_utf16le.blocks) == 2
+
+    # 4. UTF-16 BE
+    res_utf16be = extract_from_txt(sample.encode("utf-16-be"), "notepad_utf16_be.txt")
+    assert "300 mm" in res_utf16be.full_text
+    assert len(res_utf16be.blocks) == 2
+
+    # 5. UTF-16 with BOM (Standard Windows Notepad default)
+    res_utf16 = extract_from_txt(sample.encode("utf-16"), "notepad_utf16_bom.txt")
+    assert "300 mm" in res_utf16.full_text
+    assert len(res_utf16.blocks) == 2
+
+
 if __name__ == "__main__":
     test_txt_extraction()
+    test_txt_encodings_windows_notepad()
     test_pdf_extraction_with_pages()
     test_docx_extraction_with_paragraphs()
     test_empty_file_validation()
@@ -176,3 +205,4 @@ if __name__ == "__main__":
     test_file_api_endpoint_integration()
     test_existing_paste_analyze_regression()
     print("All Step 3 file processing tests passed successfully!")
+

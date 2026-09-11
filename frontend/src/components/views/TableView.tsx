@@ -31,8 +31,8 @@ export default function TableView({ result, onOpenSource }: TableViewProps) {
         type: "Key Point",
         typeLabel: "Key Point",
         information: kp.point,
-        person: kp.source.sender.split("(")[0].trim(),
-        date: kp.source.date.split("-")[0].trim(),
+        person: kp.source.sender ? kp.source.sender.split("(")[0].trim() : "—",
+        date: "—",
         source: kp.source,
       });
     });
@@ -43,7 +43,7 @@ export default function TableView({ result, onOpenSource }: TableViewProps) {
         type: "Action",
         typeLabel: "Action Item",
         information: act.action,
-        person: act.responsiblePerson.split("(")[0].trim(),
+        person: act.responsiblePerson ? act.responsiblePerson.split("(")[0].trim() : "Unassigned",
         date: act.deadline || "—",
         source: act.source,
       });
@@ -55,7 +55,7 @@ export default function TableView({ result, onOpenSource }: TableViewProps) {
         type: "Decision",
         typeLabel: "Decision",
         information: dec.decision,
-        person: dec.approvedBy.split("(")[0].trim(),
+        person: dec.approvedBy ? dec.approvedBy.split("(")[0].trim() : "—",
         date: dec.date || "—",
         source: dec.source,
       });
@@ -66,9 +66,9 @@ export default function TableView({ result, onOpenSource }: TableViewProps) {
         id: dt.id,
         type: "Date",
         typeLabel: "Milestone Date",
-        information: `${dt.title} — ${dt.significance}`,
-        person: dt.source.sender.split("(")[0].trim(),
-        date: dt.date,
+        information: dt.significance ? `${dt.title} — ${dt.significance}` : dt.title,
+        person: dt.source.sender ? dt.source.sender.split("(")[0].trim() : "—",
+        date: dt.date || "—",
         source: dt.source,
       });
     });

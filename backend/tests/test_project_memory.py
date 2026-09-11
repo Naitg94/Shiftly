@@ -1,4 +1,10 @@
+import os
 import json
+import pytest
+
+# Isolate automated tests to test SQLite storage
+os.environ["TEST_USE_SQLITE"] = "true"
+
 from fastapi.testclient import TestClient
 from app.main import app
 from app.models.schemas import (
@@ -71,15 +77,20 @@ SAMPLE_RESULT = ShiftlyAnalysisResult(
 )
 
 
-def test_1_create_project():
+@pytest.fixture(scope="module")
+def project_id():
     res = client.post("/api/projects", json={"name": "Riverside Office", "description": "Commercial renovation"})
     assert res.status_code == 201
+    return res.json()["id"]
+
+
+def test_1_create_project(project_id: str):
+    assert project_id is not None
+    res = client.get(f"/api/projects/{project_id}")
+    assert res.status_code == 200
     data = res.json()
+    assert data["id"] == project_id
     assert data["name"] == "Riverside Office"
-    assert data["description"] == "Commercial renovation"
-    assert "id" in data
-    assert "created_at" in data
-    return data["id"]
 
 
 def test_2_list_projects(project_id: str):
@@ -185,8 +196,40 @@ def test_9_regression_endpoints():
     assert res_f.status_code in [200, 503]
 
 
+def test_10_missing_supabase_config_enforcement(monkeypatch):
+    from app.core.config import settings
+    from app.db.repository import ProjectMemoryRepository, DatabaseConfigurationError
+    monkeypatch.setattr(settings, "SUPABASE_URL", None)
+    monkeypatch.setattr(settings, "SUPABASE_PUBLISHABLE_KEY", None)
+    monkeypatch.setattr(settings, "SUPABASE_ANON_KEY", None)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_PUBLISHABLE_KEY", raising=False)
+    monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
+    monkeypatch.setenv("TEST_USE_SQLITE", "false")
+
+    repo = ProjectMemoryRepository(use_sqlite_for_tests=False)
+
+    with pytest.raises(DatabaseConfigurationError):
+        repo.create_project("Test")
+    with pytest.raises(DatabaseConfigurationError):
+        repo.list_projects()
+    with pytest.raises(DatabaseConfigurationError):
+        repo.get_project("fake-id")
+    with pytest.raises(DatabaseConfigurationError):
+        repo.delete_project("fake-id")
+    with pytest.raises(DatabaseConfigurationError):
+        repo.save_analysis("fake-id", SAMPLE_RESULT)
+    with pytest.raises(DatabaseConfigurationError):
+        repo.list_project_analyses("fake-id")
+    with pytest.raises(DatabaseConfigurationError):
+        repo.get_analysis("fake-id", "fake-aid")
+    with pytest.raises(DatabaseConfigurationError):
+        repo.search_project_memory("fake-id", "query")
+
+
 if __name__ == "__main__":
-    pid = test_1_create_project()
+    pid = project_id()
+    test_1_create_project(pid)
     test_2_list_projects(pid)
     test_3_get_project(pid)
     test_4_save_analysis_and_child_entities(pid)
