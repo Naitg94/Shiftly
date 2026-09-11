@@ -29,6 +29,7 @@ class Settings:
     GUEST_MAX_TEXT_CHAR_COUNT: int = int(os.getenv("GUEST_MAX_TEXT_CHAR_COUNT", "3000"))
     RATE_LIMIT_ANALYZE_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_ANALYZE_PER_MINUTE", "10"))
     RATE_LIMIT_PROJECTS_WRITE_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PROJECTS_WRITE_PER_MINUTE", "30"))
+    RATE_LIMIT_RECOVERY_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_RECOVERY_PER_MINUTE", "5"))
 
     # CORS
     CORS_ORIGINS_RAW: str = os.getenv("CORS_ORIGINS", "http://localhost:3000")
@@ -49,6 +50,13 @@ class Settings:
     SUPABASE_PUBLISHABLE_KEY: str | None = os.getenv("SUPABASE_PUBLISHABLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
     SUPABASE_ANON_KEY: str | None = os.getenv("SUPABASE_PUBLISHABLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
     DATABASE_URL: str | None = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
+
+    # Supabase Administrative / Service-Role Key for MVP Password Recovery
+    # CRITICAL SECURITY REQUIREMENTS:
+    # 1. Strictly server-side only; NEVER expose to frontend or NEXT_PUBLIC_* variables.
+    # 2. NEVER log, commit, or return this key in API responses.
+    # 3. Used exclusively for administrative user lookup and password updates via Supabase Auth GoTrue.
+    SUPABASE_SERVICE_ROLE_KEY: str | None = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 
 settings = Settings()

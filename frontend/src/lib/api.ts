@@ -215,3 +215,56 @@ export async function analyzeFile(file: File): Promise<ShiftlyAnalysisResult> {
   }
   return res.json();
 }
+
+export interface VerifyRecoveryResponse {
+  recovery_token: string;
+  message: string;
+}
+
+export interface ResetPasswordResponse {
+  success: boolean;
+  message: string;
+}
+
+export async function verifyRecoveryAccount(
+  username: string,
+  email: string
+): Promise<VerifyRecoveryResponse> {
+  const res = await fetch(`${API_BASE}/api/password-recovery/verify`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      username: username.trim(),
+      email: email.trim().toLowerCase(),
+    }),
+  });
+  if (!res.ok) {
+    return parseErrorResponse(res);
+  }
+  return res.json();
+}
+
+export async function resetRecoveryPassword(
+  recoveryToken: string,
+  newPassword: string,
+  confirmPassword: string
+): Promise<ResetPasswordResponse> {
+  const res = await fetch(`${API_BASE}/api/password-recovery/reset`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      recovery_token: recoveryToken,
+      new_password: newPassword,
+      confirm_password: confirmPassword,
+    }),
+  });
+  if (!res.ok) {
+    return parseErrorResponse(res);
+  }
+  return res.json();
+}
+

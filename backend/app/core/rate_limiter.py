@@ -176,3 +176,11 @@ rate_limit_projects_write = create_rate_limiter_dependency(
     window_seconds=60,
     allow_unauthenticated=False,
 )
+
+rate_limit_recovery = create_rate_limiter_dependency(
+    scope="password_recovery",
+    max_requests=getattr(settings, "RATE_LIMIT_RECOVERY_PER_MINUTE", 5),
+    window_seconds=60,
+    allow_unauthenticated=True,
+)
+
