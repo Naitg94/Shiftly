@@ -1,10 +1,14 @@
 import io
 import os
 import re
+import time
+import logging
 from dataclasses import dataclass, field
 from typing import List, Optional, Literal
 import pymupdf as fitz
 import docx
+
+logger = logging.getLogger("shiftly.files")
 
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB safety limit
 SUPPORTED_EXTENSIONS = {".txt", ".pdf", ".docx", ".chat", ".log", ".csv"}
@@ -302,31 +306,67 @@ def extract_from_docx(file_bytes: bytes, filename: str) -> ExtractedFileContent:
 
 def process_uploaded_file(file_bytes: bytes, filename: str) -> ExtractedFileContent:
     """
-    Validates file size and extension, then routes to the appropriate parser.
+    Validates file size, extension, and content headers, then routes to the appropriate parser.
+    Sanitizes filenames to prevent path traversal.
     Returns normalized text and granular location ContentBlocks.
     """
-    if not filename:
+    if not filename or not filename.strip():
         raise UnsupportedFileTypeError("Missing filename in uploaded file.")
 
-    if len(file_bytes) == 0:
-        raise EmptyFileError(f"Uploaded file '{filename}' is empty (0 bytes).")
+    # Sanitize filename: extract basename, strip null bytes and directory traversal characters
+    clean_filename = os.path.basename(filename.replace("\\", "/")).strip()
+    clean_filename = re.sub(r"[\x00-\x1f\x7f]", "", clean_filename)
+    if not clean_filename or clean_filename in (".", ".."):
+        raise UnsupportedFileTypeError("Invalid or unsafe filename.")
 
-    if len(file_bytes) > MAX_FILE_SIZE_BYTES:
-        max_mb = MAX_FILE_SIZE_BYTES // (1024 * 1024)
-        raise FileOversizedError(f"File '{filename}' exceeds maximum allowed size of {max_mb} MB.")
+    start_t = time.perf_counter()
+    logger.info("file_processing_started filename=%s size_bytes=%d", clean_filename, len(file_bytes))
 
-    _, ext = os.path.splitext(filename.lower())
-    if ext not in SUPPORTED_EXTENSIONS:
-        supported_str = ", ".join(sorted(SUPPORTED_EXTENSIONS))
-        raise UnsupportedFileTypeError(
-            f"Unsupported file format '{ext}'. Supported formats: {supported_str}"
+    try:
+        if len(file_bytes) == 0:
+            raise EmptyFileError(f"Uploaded file '{clean_filename}' is empty (0 bytes).")
+
+        if len(file_bytes) > MAX_FILE_SIZE_BYTES:
+            max_mb = MAX_FILE_SIZE_BYTES // (1024 * 1024)
+            raise FileOversizedError(f"File '{clean_filename}' exceeds maximum allowed size of {max_mb} MB.")
+
+        _, ext = os.path.splitext(clean_filename.lower())
+        if ext not in SUPPORTED_EXTENSIONS:
+            supported_str = ", ".join(sorted(SUPPORTED_EXTENSIONS))
+            raise UnsupportedFileTypeError(
+                f"Unsupported file format '{ext}'. Supported formats: {supported_str}"
+            )
+
+        if ext in {".txt", ".chat", ".log", ".csv"}:
+            result = extract_from_txt(file_bytes, clean_filename)
+        elif ext == ".pdf":
+            if not file_bytes.startswith(b"%PDF-"):
+                raise UnsupportedFileTypeError(f"File '{clean_filename}' is not a valid PDF document (missing PDF signature).")
+            result = extract_from_pdf(file_bytes, clean_filename)
+        elif ext == ".docx":
+            # Standard DOCX files are zip containers starting with 'PK\x03\x04'
+            if not file_bytes.startswith(b"PK\x03\x04"):
+                raise UnsupportedFileTypeError(f"File '{clean_filename}' is not a valid Word document (missing DOCX/ZIP signature).")
+            result = extract_from_docx(file_bytes, clean_filename)
+        else:
+            raise UnsupportedFileTypeError(f"Unsupported file format '{ext}'")
+
+        duration_ms = (time.perf_counter() - start_t) * 1000.0
+        logger.info(
+            "file_processing_completed filename=%s text_len=%d blocks=%d duration_ms=%.2f",
+            clean_filename,
+            len(result.full_text),
+            len(result.blocks),
+            duration_ms,
         )
+        return result
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - start_t) * 1000.0
+        logger.error(
+            "file_processing_failed filename=%s error=%s duration_ms=%.2f",
+            clean_filename,
+            type(exc).__name__,
+            duration_ms,
+        )
+        raise
 
-    if ext in {".txt", ".chat", ".log", ".csv"}:
-        return extract_from_txt(file_bytes, filename)
-    elif ext == ".pdf":
-        return extract_from_pdf(file_bytes, filename)
-    elif ext == ".docx":
-        return extract_from_docx(file_bytes, filename)
-    else:
-        raise UnsupportedFileTypeError(f"Unsupported file format '{ext}'")

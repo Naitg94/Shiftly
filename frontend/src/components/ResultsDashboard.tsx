@@ -31,7 +31,7 @@ import TableView from "./views/TableView";
 import StructuredView from "./views/StructuredView";
 import SourceModal from "./SourceModal";
 import { Project } from "@/types/project";
-import { fetchProjects, createProject, saveAnalysisToProject } from "@/lib/api";
+import { fetchProjects, createProject, saveAnalysisToProject, ApiError } from "@/lib/api";
 
 interface ResultsDashboardProps {
   result: ShiftlyAnalysisResult;
@@ -64,6 +64,17 @@ export default function ResultsDashboard({
   const [showNewProjectInput, setShowNewProjectInput] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
+
+  // Close save modal on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isSaveModalOpen) {
+        setIsSaveModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isSaveModalOpen]);
 
   const tabs: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
     { id: "keypoints", label: "Key Points", icon: <ListChecks className="h-4 w-4" /> },
@@ -123,7 +134,19 @@ export default function ResultsDashboard({
         setSaveSuccess(null);
       }, 1500);
     } catch (err: unknown) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save to project");
+      let msg = err instanceof Error ? err.message : "Failed to save to project";
+      if (err instanceof ApiError) {
+        if (err.status === 401) {
+          msg = "Your session has expired. Please sign in again.";
+        } else if (err.status === 429) {
+          msg = "Rate limit reached. Please wait a moment before saving again.";
+        } else if (err.status === 504) {
+          msg = "Save request timed out. Please try again.";
+        } else if (err.status >= 500) {
+          msg = "Database service is temporarily unavailable. Please try again.";
+        }
+      }
+      setSaveError(msg);
     } finally {
       setIsSaving(false);
     }
@@ -302,6 +325,7 @@ export default function ResultsDashboard({
               <button
                 onClick={() => setIsSaveModalOpen(false)}
                 className="text-slate-400 hover:text-white transition-colors"
+                aria-label="Close modal"
               >
                 <X className="h-4 w-4" />
               </button>

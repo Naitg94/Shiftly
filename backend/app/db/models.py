@@ -1,6 +1,6 @@
 import uuid
 from typing import Optional, List, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from app.models.schemas import SourceReference, ShiftlyAnalysisResult
 
 
@@ -10,12 +10,15 @@ class ProjectCreate(BaseModel):
 
 
 class Project(BaseModel):
+
     id: str
     name: str
     description: Optional[str] = None
     created_at: str
     updated_at: str
     analyses_count: int = 0
+    user_id: Optional[str] = None
+
 
 
 class StoredAnalysisSummary(BaseModel):

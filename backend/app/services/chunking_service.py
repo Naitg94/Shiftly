@@ -111,11 +111,126 @@ def _is_near_duplicate(text: str, existing_texts: list, threshold: float = 0.75)
     return False
 
 
+def score_key_point(kp: KeyPointItem) -> float:
+    """
+    Scores a key point based on Shiftly's extraction semantics.
+    Higher score indicates higher project consequence/importance.
+    """
+    score = 0.0
+    text = kp.point.lower()
+
+    # 1. Category weighting
+    cat = (kp.category or "").lower()
+    if cat == "decision":
+        score += 10.0
+    elif cat == "action":
+        score += 8.0
+    elif cat == "update":
+        score += 5.0
+    elif cat == "risk":
+        score += 6.0
+    else:
+        score += 3.0
+
+    # 2. Decisions & explicit approvals
+    if any(w in text for w in [
+        "approved", "approval", "agreed", "agree", "decision", "decided",
+        "confirmed", "sign-off", "signed off", "finalized", "accepted", "resolved"
+    ]):
+        score += 4.0
+
+    # 3. Confirmed commitments, critical deadlines, milestones
+    if any(w in text for w in [
+        "will deliver", "committed", "deadline", "milestone", "due by", "by friday",
+        "by monday", "by tuesday", "by wednesday", "by thursday", "scheduled for",
+        "must complete", "action item", "assigned to", "deliver"
+    ]):
+        score += 3.5
+
+    # 4. Important changes & scope/cost impacts
+    if any(w in text for w in [
+        "change order", "scope change", "revised", "revision", "delay", "budget",
+        "cost", "critical", "blocking", "blocked", "priority", "requirement",
+        "inspection", "specification", "drawings", "package"
+    ]):
+        score += 3.0
+
+    # 5. Consequential concrete facts (measurements, dates, currency, numbers)
+    if re.search(r"\b\d+([.,]\d+)?\s*(mm|cm|m|km|kg|lbs|%|k|m|hours|days|weeks|pm|am)\b", text):
+        score += 2.0
+    if re.search(r"(\$|€|£|₹|\b\d{1,2}/\d{1,2}\b|\boct\b|\bnov\b|\bdec\b|\bjan\b|\bfeb\b|\bmar\b|\bapr\b|\bmay\b|\bjun\b|\bjul\b|\baug\b|\bsep\b)", text):
+        score += 2.0
+
+    # 6. Valid, substantive source citation bonus
+    if kp.source and kp.source.excerpt and len(kp.source.excerpt.strip()) > 10:
+        score += 1.0
+
+    # 7. Penalties for low-value greetings or off-topic chatter
+    if any(w in text for w in [
+        "good morning", "good afternoon", "hello", "hi there", "thanks", "thank you",
+        "nice to meet", "how are you", "sounds good", "great job", "thumbs up"
+    ]):
+        score -= 6.0
+
+    # 8. Penalty for speculative, non-committal or uncertain chatter
+    if any(w in text for w in [
+        "maybe", "perhaps", "might be", "not sure", "just wondering", "possibly", "could be"
+    ]):
+        score -= 4.0
+
+    # 9. Penalty for extremely short phrases lacking context (< 15 chars)
+    if len(text.strip()) < 15:
+        score -= 3.0
+
+    return score
+
+
+def select_top_key_points(key_points: List[KeyPointItem], max_points: int = 5) -> List[KeyPointItem]:
+    """
+    Enforces a strict deterministic cap of at most max_points (default 5).
+    1. Deduplicates identical or near-duplicate key points first.
+    2. If distinct count <= max_points (e.g. 0, 1, 2, 3, 5), returns all distinct points.
+    3. If distinct count > max_points, ranks points using extraction semantics and returns top max_points.
+    4. Re-indexes IDs to kp-1, kp-2, ...
+    5. Preserves all source references.
+    """
+    if not key_points:
+        return []
+
+    # Step 1: Deduplicate key points using lexical overlap
+    deduped: List[KeyPointItem] = []
+    seen_texts: List[str] = []
+    for kp in key_points:
+        if not _is_near_duplicate(kp.point, seen_texts, threshold=0.75):
+            seen_texts.append(kp.point)
+            deduped.append(kp)
+
+    # Step 2: If <= max_points, keep all and re-index
+    if len(deduped) <= max_points:
+        for idx, item in enumerate(deduped, start=1):
+            item.id = f"kp-{idx}"
+        return deduped
+
+    # Step 3: Rank points with stable sort
+    scored = [(score_key_point(kp), idx, kp) for idx, kp in enumerate(deduped)]
+    # Higher score first; on tie, preserve original order (idx ascending)
+    scored.sort(key=lambda x: (-x[0], x[1]))
+
+    top_items = [item[2] for item in scored[:max_points]]
+
+    # Step 4: Re-index IDs
+    for idx, item in enumerate(top_items, start=1):
+        item.id = f"kp-{idx}"
+
+    return top_items
+
+
 def merge_analysis_results(results: List[ShiftlyAnalysisResult]) -> ShiftlyAnalysisResult:
     """
     Merges multiple ShiftlyAnalysisResult objects into a single cohesive result,
     deduplicating key points, actions, decisions, and dates using normalized
     string matching and deterministic lexical overlap similarity.
+    Enforces a deterministic cap of AT MOST 5 items on keyPoints.
     """
     if not results:
         raise ValueError("Cannot merge empty results list.")
@@ -123,6 +238,7 @@ def merge_analysis_results(results: List[ShiftlyAnalysisResult]) -> ShiftlyAnaly
     if len(results) == 1:
         # Re-verify and sync stats with extracted list lengths
         res = results[0]
+        res.keyPoints = select_top_key_points(res.keyPoints, max_points=5)
         res.stats.keyPointsCount = len(res.keyPoints)
         res.stats.actionsCount = len(res.actions)
         res.stats.decisionsCount = len(res.decisions)
@@ -132,15 +248,11 @@ def merge_analysis_results(results: List[ShiftlyAnalysisResult]) -> ShiftlyAnaly
     base = results[0]
     all_summaries: List[str] = [r.summary.strip() for r in results if r.summary.strip()]
 
-    # Deduplicate Key Points
-    seen_kp_texts: List[str] = []
+    # Deduplicate Key Points and apply strict 5-item cap
     merged_kp: List[KeyPointItem] = []
     for r in results:
-        for kp in r.keyPoints:
-            if not _is_near_duplicate(kp.point, seen_kp_texts, threshold=0.75):
-                seen_kp_texts.append(kp.point)
-                kp.id = f"kp-{len(merged_kp) + 1}"
-                merged_kp.append(kp)
+        merged_kp.extend(r.keyPoints)
+    merged_kp = select_top_key_points(merged_kp, max_points=5)
 
     # Deduplicate Actions
     seen_act_keys: List[str] = []

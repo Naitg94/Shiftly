@@ -17,7 +17,7 @@ from app.models.schemas import (
     SourceReference,
 )
 
-client = TestClient(app)
+client = TestClient(app, headers={"Authorization": "Bearer test-token-123"})
 
 SAMPLE_SRC = SourceReference(
     id="src-1",

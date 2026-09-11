@@ -16,7 +16,10 @@ from app.models.schemas import (
     SourceReference,
 )
 
-client = TestClient(app)
+import os
+os.environ["TEST_USE_SQLITE"] = "true"
+
+client = TestClient(app, headers={"Authorization": "Bearer test-token-123"})
 
 SAMPLE_CONVERSATION = """[10/12/2024, 08:34] David Miller (Client): Morning team. Did anyone get a chance to review the revised glazing package?
 [10/12/2024, 08:42] Elena Vance (Lead Architect): Yes, we have an issue with the acoustic laminate on north facade.
@@ -227,6 +230,116 @@ def test_gemini_extraction_pipeline():
     assert result.decisions[0].approvedBy == "David Miller"
 
 
+def test_key_points_cap_and_selection():
+    from app.services.chunking_service import select_top_key_points, merge_analysis_results
+
+    src = SourceReference(
+        id="src-1",
+        sourceType="Chat Export",
+        sourceName="Site Channel",
+        date="Oct 12",
+        sender="Elena",
+        messageRef="Msg 1",
+        excerpt="Important proof quote from source",
+    )
+
+    # A. 2 important points -> exactly 2 key points
+    two_pts = [
+        KeyPointItem(id="kp-1", point="Approved Change Order #05 for structural beams.", category="Decision", source=src),
+        KeyPointItem(id="kp-2", point="Deliver steel framing by Friday 4 PM.", category="Action", source=src),
+    ]
+    res_2 = select_top_key_points(two_pts, max_points=5)
+    assert len(res_2) == 2
+    assert res_2[0].id == "kp-1"
+    assert res_2[1].id == "kp-2"
+    assert res_2[0].source.excerpt == "Important proof quote from source"
+
+    # B. 5 important points -> exactly 5
+    five_pts = [
+        KeyPointItem(id="kp-1", point="Structural calculations approved for foundation slab.", category="Decision", source=src),
+        KeyPointItem(id="kp-2", point="HVAC duct routing coordinated with ceiling contractor.", category="Update", source=src),
+        KeyPointItem(id="kp-3", point="Fire safety permits issued by city inspectors.", category="Update", source=src),
+        KeyPointItem(id="kp-4", point="Electrical conduit installation scheduled for East Wing.", category="Action", source=src),
+        KeyPointItem(id="kp-5", point="Plumbing rough-in inspection passed with zero citations.", category="Update", source=src),
+    ]
+    res_5 = select_top_key_points(five_pts, max_points=5)
+    assert len(res_5) == 5
+
+    # C. 10+ important points -> maximum 5, prioritizing decisions, commitments, changes over banter
+    ten_pts = [
+        KeyPointItem(id="kp-1", point="Good morning everyone, happy Monday.", category="Information", source=src),
+        KeyPointItem(id="kp-2", point="Approved revised structural package for East Wing.", category="Decision", source=src),
+        KeyPointItem(id="kp-3", point="Thanks for the update earlier.", category="Information", source=src),
+        KeyPointItem(id="kp-4", point="Will deliver HVAC chillers by Friday 3 PM deadline.", category="Action", source=src),
+        KeyPointItem(id="kp-5", point="Maybe we could think about new paint colors perhaps.", category="Information", source=src),
+        KeyPointItem(id="kp-6", point="Change Order #09 signed off, adding $15,000 to foundation budget.", category="Decision", source=src),
+        KeyPointItem(id="kp-7", point="Fire damper inspection scheduled for Oct 24 milestone.", category="Action", source=src),
+        KeyPointItem(id="kp-8", point="Critical acoustic barrier specifications confirmed at 55 dB.", category="Update", source=src),
+        KeyPointItem(id="kp-9", point="Just wondering about lunch options today.", category="Information", source=src),
+        KeyPointItem(id="kp-10", point="Facade glazing thickness revised to 24 mm.", category="Update", source=src),
+        KeyPointItem(id="kp-11", point="Sounds good to me.", category="Information", source=src),
+        KeyPointItem(id="kp-12", point="Hi there team.", category="Information", source=src),
+    ]
+    res_10 = select_top_key_points(ten_pts, max_points=5)
+    assert len(res_10) == 5
+    # Confirm trivial greetings and banter were excluded
+    points_text = [kp.point for kp in res_10]
+    assert not any("morning" in p.lower() for p in points_text)
+    assert not any("lunch" in p.lower() for p in points_text)
+    assert not any("thanks" in p.lower() for p in points_text)
+    # Confirm high-value decision and action items were retained
+    assert any("structural package" in p.lower() for p in points_text)
+    assert any("change order #09" in p.lower() for p in points_text)
+    # Confirm IDs are sequentially re-indexed
+    assert [kp.id for kp in res_10] == ["kp-1", "kp-2", "kp-3", "kp-4", "kp-5"]
+    # F. Retained key points still have valid source alignment
+    for kp in res_10:
+        assert kp.source is not None
+        assert kp.source.excerpt == "Important proof quote from source"
+
+    # D. Duplicate points deduplicated before final cap
+    dup_pts = [
+        KeyPointItem(id="kp-1", point="Approved Change Order #05 for structural beams.", category="Decision", source=src),
+        KeyPointItem(id="kp-2", point="Approved Change Order #05 for structural beams.", category="Decision", source=src),
+        KeyPointItem(id="kp-3", point="approved change order #05 for structural beams", category="Decision", source=src),
+        KeyPointItem(id="kp-4", point="Deliver steel framing by Friday 4 PM.", category="Action", source=src),
+    ]
+    res_dup = select_top_key_points(dup_pts, max_points=5)
+    assert len(res_dup) == 2
+
+    # E. Actions/decisions/dates are NOT accidentally truncated by key-point cap
+    r_multi = ShiftlyAnalysisResult(
+        id="r-multi",
+        title="Large Test Analysis",
+        analyzedAt="Now",
+        stats=AnalysisStats(messagesAnalyzed=50, keyPointsCount=8, actionsCount=8, decisionsCount=7, importantDatesCount=6),
+        summary="Summary of test",
+        keyPoints=ten_pts[:8],
+        actions=[
+            ActionItem(id=f"act-{i}", action=f"Task #{i}", responsiblePerson=f"Person {i}", source=src)
+            for i in range(1, 9)
+        ],
+        decisions=[
+            DecisionItem(id=f"dec-{i}", decision=f"Decision #{i}", approvedBy=f"Lead {i}", source=src)
+            for i in range(1, 8)
+        ],
+        importantDates=[
+            ImportantDateItem(id=f"dt-{i}", title=f"Date #{i}", date=f"Oct {i}", significance=f"Milestone {i}", source=src)
+            for i in range(1, 7)
+        ],
+    )
+    merged_res = merge_analysis_results([r_multi])
+    assert len(merged_res.keyPoints) == 5
+    assert merged_res.stats.keyPointsCount == 5
+    # Actions, decisions, dates must remain untruncated
+    assert len(merged_res.actions) == 8
+    assert merged_res.stats.actionsCount == 8
+    assert len(merged_res.decisions) == 7
+    assert merged_res.stats.decisionsCount == 7
+    assert len(merged_res.importantDates) == 6
+    assert merged_res.stats.importantDatesCount == 6
+
+
 if __name__ == "__main__":
     test_health_endpoint()
     test_analyze_empty_input()
@@ -234,4 +347,5 @@ if __name__ == "__main__":
     test_chunking_and_normalization()
     test_merge_and_deduplication()
     test_gemini_extraction_pipeline()
+    test_key_points_cap_and_selection()
     print("All backend tests passed successfully!")

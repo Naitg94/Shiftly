@@ -168,6 +168,7 @@ export default function TableView({ result, onOpenSource }: TableViewProps) {
                     onClick={() => onOpenSource(row.source)}
                     className="inline-flex items-center gap-1 rounded-md border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-400 hover:text-blue-300 hover:border-blue-500/40 transition-colors"
                     title="View source citation"
+                    aria-label={`View source citation for ${row.typeLabel}: ${row.information.slice(0, 30)}`}
                   >
                     <Info className="h-3.5 w-3.5 text-blue-400" />
                     <span className="hidden md:inline text-[11px]">View</span>

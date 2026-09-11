@@ -2,11 +2,13 @@ import json
 import logging
 import os
 import re
+import time
 from typing import List, Optional, Any
 from datetime import datetime
 from google import genai
 from google.genai import types
 from google.genai.errors import APIError
+import httpx
 from app.core.config import settings
 from app.models.schemas import ShiftlyAnalysisResult
 from app.services.chunking_service import (
@@ -14,6 +16,7 @@ from app.services.chunking_service import (
     split_into_chunks,
     merge_analysis_results,
     estimate_messages_count,
+    select_top_key_points,
 )
 
 logger = logging.getLogger("shiftly.gemini")
@@ -35,7 +38,7 @@ RULES & CORE PRINCIPLES:
    - sender: The person who sent the message
    - messageRef: Reference tag, e.g. 'Message #4' or 'Line 12'
    - excerpt: An exact concise sentence/quote from the text that proves the extraction.
-6. QUALITY OVER QUANTITY: Prefer fewer high-value, actionable points over trivial chatter.
+6. QUALITY OVER QUANTITY: Prefer fewer high-value, actionable points over trivial chatter. In keyPoints, extract AT MOST the 5 most important high-level takeaways (decisions, commitments, major changes). If only 2 or 3 genuinely important points exist, return 2 or 3. Never exceed 5 key points.
 7. STRICT BOUNDARIES - DO NOT ADD:
    - Do NOT add risk scores or predictions.
    - Do NOT detect conflicts or sentiment.
@@ -47,6 +50,9 @@ RULES & CORE PRINCIPLES:
    - In SourceReference.date: If no explicit message timestamp/date exists in the source text, use '—' or omit.
    - If a deadline is stated as 'Friday, September 11' or 'tomorrow', preserve that exact text. Never convert it into an arbitrary calendar date (like 2023-09-08).
 """
+
+
+MAX_ALLOWED_CHUNKS = 15
 
 
 def get_gemini_client() -> genai.Client:
@@ -74,6 +80,8 @@ COMMUNICATION LOG (Part {chunk_index} of {total_chunks}):
 
 Produce a complete structured extraction matching the requested JSON schema."""
 
+    start_t = time.perf_counter()
+    logger.info("gemini_chunk_extraction_started chunk_index=%d total_chunks=%d", chunk_index, total_chunks)
     try:
         response = client.models.generate_content(
             model=settings.GEMINI_MODEL,
@@ -83,6 +91,7 @@ Produce a complete structured extraction matching the requested JSON schema."""
                 response_mime_type="application/json",
                 response_schema=ShiftlyAnalysisResult,
                 temperature=0.1,
+                http_options=types.HttpOptions(timeout=60000.0),
             ),
         )
 
@@ -91,14 +100,40 @@ Produce a complete structured extraction matching the requested JSON schema."""
 
         # Validate with Pydantic
         result = ShiftlyAnalysisResult.model_validate_json(response.text)
+        duration_ms = (time.perf_counter() - start_t) * 1000.0
+        logger.info(
+            "gemini_chunk_extraction_completed chunk_index=%d total_chunks=%d duration_ms=%.2f key_points=%d actions=%d decisions=%d dates=%d",
+            chunk_index,
+            total_chunks,
+            duration_ms,
+            len(result.keyPoints),
+            len(result.actions),
+            len(result.decisions),
+            len(result.importantDates),
+        )
         return result
 
     except APIError as e:
-        logger.error(f"Gemini API error during extraction: {e}")
-        raise RuntimeError(f"Gemini API communication error: {e.message}") from e
+        duration_ms = (time.perf_counter() - start_t) * 1000.0
+        logger.error(f"Gemini API error during extraction (duration_ms={duration_ms:.2f}): {e}")
+        err_msg = str(e)
+        if getattr(e, "code", None) == 429 or "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "quota" in err_msg.lower():
+            raise RuntimeError("AI extraction quota or rate limit exceeded. Please wait a moment before trying again.") from e
+        raise RuntimeError(f"Gemini API communication error: {getattr(e, 'message', str(e))}") from e
+    except (httpx.TimeoutException, TimeoutError) as te:
+        duration_ms = (time.perf_counter() - start_t) * 1000.0
+        logger.error(f"Timeout calling Gemini (duration_ms={duration_ms:.2f}): {te}")
+        raise TimeoutError("Gemini extraction timed out.") from te
+    except (json.JSONDecodeError, ValueError) as ve:
+        duration_ms = (time.perf_counter() - start_t) * 1000.0
+        logger.error(f"Error parsing Gemini extraction result structure (duration_ms={duration_ms:.2f}): {ve}")
+        raise RuntimeError("AI service returned an unparseable response structure.") from ve
     except Exception as e:
-        logger.error(f"Error parsing Gemini extraction result: {e}")
+        duration_ms = (time.perf_counter() - start_t) * 1000.0
+        logger.error(f"Error during Gemini extraction (duration_ms={duration_ms:.2f}): {e}")
         raise
+
+
 
 
 def validate_and_align_sources(
@@ -226,6 +261,10 @@ def analyze_communication(
 
     client = get_gemini_client()
     chunks = split_into_chunks(cleaned_text, max_chars=15000, overlap_chars=1000)
+    if len(chunks) > MAX_ALLOWED_CHUNKS:
+        raise ValueError(
+            f"Communication is too large to analyze in a single request ({len(chunks)} chunks exceeds the limit of {MAX_ALLOWED_CHUNKS}). Please analyze a shorter segment or document."
+        )
 
     logger.info(f"Processing text ({len(cleaned_text)} chars) into {len(chunks)} chunk(s)")
 
@@ -280,6 +319,10 @@ def analyze_communication(
                     dt.date = cleaned_dt
             if dt.source and dt.source.date and re.search(r"\b(20\d{2}|19\d{2})\b", dt.source.date):
                 dt.source.date = "—"
+
+    # Enforce deterministic cap on keyPoints (at most 5 items)
+    final_result.keyPoints = select_top_key_points(final_result.keyPoints, max_points=5)
+    final_result.stats.keyPointsCount = len(final_result.keyPoints)
 
     return final_result
 

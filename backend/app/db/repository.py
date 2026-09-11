@@ -18,9 +18,12 @@ from app.models.schemas import (
     SourceReference,
 )
 
+import tempfile
+
 logger = logging.getLogger("shiftly.db")
 
-LOCAL_DB_PATH = os.path.join(os.path.dirname(__file__), "project_memory.db")
+# Isolated SQLite path for automated unit tests only. Production uses Supabase PostgreSQL.
+LOCAL_DB_PATH = os.getenv("SQLITE_DB_PATH") or os.path.join(tempfile.gettempdir(), "shiftly_test_project_memory.db")
 
 
 class DatabaseConfigurationError(Exception):
@@ -41,6 +44,16 @@ class DatabaseOperationError(Exception):
     pass
 
 
+class DatabaseTimeoutError(DatabaseOperationError):
+    """Raised when a database operation times out."""
+    pass
+
+
+class DatabaseConnectionError(DatabaseOperationError):
+    """Raised when connecting to the database fails."""
+    pass
+
+
 def _init_local_db():
     """Initializes the local SQLite database schema for isolated automated tests."""
     conn = sqlite3.connect(LOCAL_DB_PATH)
@@ -53,8 +66,10 @@ def _init_local_db():
         name TEXT NOT NULL,
         description TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        user_id TEXT
     );
+
 
     CREATE TABLE IF NOT EXISTS analyses (
         id TEXT PRIMARY KEY,
@@ -110,6 +125,10 @@ def _init_local_db():
         created_at TEXT NOT NULL
     );
     """)
+    cursor.execute("PRAGMA table_info(projects)")
+    cols = [r[1] for r in cursor.fetchall()]
+    if "user_id" not in cols:
+        cursor.execute("ALTER TABLE projects ADD COLUMN user_id TEXT")
     conn.commit()
     conn.close()
 
@@ -139,17 +158,18 @@ class ProjectMemoryRepository:
         )
         self.is_supabase_configured = bool(self.supabase_url and self.supabase_key)
 
-    def _get_supabase_headers(self) -> dict:
+    def _get_supabase_headers(self, user_token: Optional[str] = None) -> dict:
+        auth_bearer = user_token if (user_token and not user_token.startswith("test-token")) else self.supabase_key
         return {
             "apikey": self.supabase_key,
-            "Authorization": f"Bearer {self.supabase_key}",
+            "Authorization": f"Bearer {auth_bearer}",
             "Content-Type": "application/json",
             "Prefer": "return=representation",
         }
 
     @property
     def _active_sqlite_mode(self) -> bool:
-        return self.use_sqlite_for_tests
+        return self.use_sqlite_for_tests or os.getenv("TEST_USE_SQLITE", "false").lower() == "true"
 
     def _ensure_configured(self):
         self._reload_config()
@@ -164,7 +184,7 @@ class ProjectMemoryRepository:
     # PROJECT OPERATIONS
     # =========================================================================
 
-    def create_project(self, name: str, description: Optional[str] = None) -> Project:
+    def create_project(self, name: str, description: Optional[str] = None, user_id: Optional[str] = None, user_token: Optional[str] = None) -> Project:
         self._ensure_configured()
         project_id = str(uuid.uuid4())
         now_str = datetime.utcnow().isoformat() + "Z"
@@ -178,8 +198,10 @@ class ProjectMemoryRepository:
                 "created_at": now_str,
                 "updated_at": now_str,
             }
+            if user_id:
+                payload["user_id"] = user_id
             try:
-                res = httpx.post(url, headers=self._get_supabase_headers(), json=payload, timeout=10.0)
+                res = httpx.post(url, headers=self._get_supabase_headers(user_token), json=payload, timeout=10.0)
                 if res.status_code in (200, 201):
                     return Project(
                         id=project_id,
@@ -188,22 +210,25 @@ class ProjectMemoryRepository:
                         created_at=now_str,
                         updated_at=now_str,
                         analyses_count=0,
+                        user_id=user_id,
                     )
                 raise DatabaseOperationError(f"Supabase create_project failed (HTTP {res.status_code}): {res.text}")
+            except httpx.TimeoutException as te:
+                raise DatabaseTimeoutError("Database operation timed out. Please try again.") from te
             except httpx.RequestError as e:
-                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
+                raise DatabaseConnectionError(f"Network error connecting to Supabase: {str(e)}") from e
 
-        return self._save_project_locally(project_id, name, description, now_str)
+        return self._save_project_locally(project_id, name, description, now_str, user_id)
 
-    def _save_project_locally(self, project_id: str, name: str, description: Optional[str], now_str: str) -> Project:
+    def _save_project_locally(self, project_id: str, name: str, description: Optional[str], now_str: str, user_id: Optional[str] = None) -> Project:
         _init_local_db()
         conn = sqlite3.connect(LOCAL_DB_PATH)
         try:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.execute(
-                "INSERT INTO projects (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?) "
-                "ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description, updated_at=excluded.updated_at",
-                (project_id, name, description, now_str, now_str),
+                "INSERT INTO projects (id, name, description, created_at, updated_at, user_id) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description, updated_at=excluded.updated_at, user_id=excluded.user_id",
+                (project_id, name, description, now_str, now_str, user_id),
             )
             conn.commit()
             return Project(
@@ -213,19 +238,22 @@ class ProjectMemoryRepository:
                 created_at=now_str,
                 updated_at=now_str,
                 analyses_count=0,
+                user_id=user_id,
             )
         except Exception as e:
             raise DatabaseOperationError(f"Failed to create project in test DB: {str(e)}") from e
         finally:
             conn.close()
 
-    def list_projects(self) -> List[Project]:
+    def list_projects(self, user_id: Optional[str] = None, user_token: Optional[str] = None) -> List[Project]:
         self._ensure_configured()
 
         if not self._active_sqlite_mode:
             url = f"{self.supabase_url}/rest/v1/projects?select=*,analyses(count)&order=created_at.desc"
+            if user_id:
+                url = f"{self.supabase_url}/rest/v1/projects?user_id=eq.{user_id}&select=*,analyses(count)&order=created_at.desc"
             try:
-                res = httpx.get(url, headers=self._get_supabase_headers(), timeout=10.0)
+                res = httpx.get(url, headers=self._get_supabase_headers(user_token), timeout=10.0)
                 if res.status_code == 200:
                     projects_data = res.json()
                     projects: List[Project] = []
@@ -239,24 +267,37 @@ class ProjectMemoryRepository:
                                 created_at=row["created_at"],
                                 updated_at=row["updated_at"],
                                 analyses_count=count,
+                                user_id=row.get("user_id"),
                             )
                         )
                     return projects
                 raise DatabaseOperationError(f"Supabase list_projects failed (HTTP {res.status_code}): {res.text}")
+            except httpx.TimeoutException as te:
+                raise DatabaseTimeoutError("Database operation timed out. Please try again.") from te
             except httpx.RequestError as e:
-                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
+                raise DatabaseConnectionError(f"Network error connecting to Supabase: {str(e)}") from e
 
         _init_local_db()
         conn = sqlite3.connect(LOCAL_DB_PATH)
         try:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT p.id, p.name, p.description, p.created_at, p.updated_at, COUNT(a.id) as count
-                FROM projects p
-                LEFT JOIN analyses a ON p.id = a.project_id
-                GROUP BY p.id
-                ORDER BY p.created_at DESC
-            """)
+            if user_id:
+                cursor.execute("""
+                    SELECT p.id, p.name, p.description, p.created_at, p.updated_at, COUNT(a.id) as count, p.user_id
+                    FROM projects p
+                    LEFT JOIN analyses a ON p.id = a.project_id
+                    WHERE p.user_id = ?
+                    GROUP BY p.id
+                    ORDER BY p.created_at DESC
+                """, (user_id,))
+            else:
+                cursor.execute("""
+                    SELECT p.id, p.name, p.description, p.created_at, p.updated_at, COUNT(a.id) as count, p.user_id
+                    FROM projects p
+                    LEFT JOIN analyses a ON p.id = a.project_id
+                    GROUP BY p.id
+                    ORDER BY p.created_at DESC
+                """)
             rows = cursor.fetchall()
             return [
                 Project(
@@ -266,19 +307,22 @@ class ProjectMemoryRepository:
                     created_at=r[3],
                     updated_at=r[4],
                     analyses_count=r[5],
+                    user_id=r[6] if len(r) > 6 else None,
                 )
                 for r in rows
             ]
         finally:
             conn.close()
 
-    def get_project(self, project_id: str) -> Optional[Project]:
+    def get_project(self, project_id: str, user_id: Optional[str] = None, user_token: Optional[str] = None) -> Optional[Project]:
         self._ensure_configured()
 
         if not self._active_sqlite_mode:
             url = f"{self.supabase_url}/rest/v1/projects?id=eq.{project_id}&select=*,analyses(count)"
+            if user_id:
+                url = f"{self.supabase_url}/rest/v1/projects?id=eq.{project_id}&user_id=eq.{user_id}&select=*,analyses(count)"
             try:
-                res = httpx.get(url, headers=self._get_supabase_headers(), timeout=10.0)
+                res = httpx.get(url, headers=self._get_supabase_headers(user_token), timeout=10.0)
                 if res.status_code == 200:
                     rows = res.json()
                     if not rows:
@@ -292,22 +336,34 @@ class ProjectMemoryRepository:
                         created_at=row["created_at"],
                         updated_at=row["updated_at"],
                         analyses_count=count,
+                        user_id=row.get("user_id"),
                     )
                 raise DatabaseOperationError(f"Supabase get_project failed (HTTP {res.status_code}): {res.text}")
+            except httpx.TimeoutException as te:
+                raise DatabaseTimeoutError("Database operation timed out. Please try again.") from te
             except httpx.RequestError as e:
-                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
+                raise DatabaseConnectionError(f"Network error connecting to Supabase: {str(e)}") from e
 
         _init_local_db()
         conn = sqlite3.connect(LOCAL_DB_PATH)
         try:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT p.id, p.name, p.description, p.created_at, p.updated_at, COUNT(a.id) as count
-                FROM projects p
-                LEFT JOIN analyses a ON p.id = a.project_id
-                WHERE p.id = ?
-                GROUP BY p.id
-            """, (project_id,))
+            if user_id:
+                cursor.execute("""
+                    SELECT p.id, p.name, p.description, p.created_at, p.updated_at, COUNT(a.id) as count, p.user_id
+                    FROM projects p
+                    LEFT JOIN analyses a ON p.id = a.project_id
+                    WHERE p.id = ? AND p.user_id = ?
+                    GROUP BY p.id
+                """, (project_id, user_id))
+            else:
+                cursor.execute("""
+                    SELECT p.id, p.name, p.description, p.created_at, p.updated_at, COUNT(a.id) as count, p.user_id
+                    FROM projects p
+                    LEFT JOIN analyses a ON p.id = a.project_id
+                    WHERE p.id = ?
+                    GROUP BY p.id
+                """, (project_id,))
             r = cursor.fetchone()
             if not r:
                 return None
@@ -318,31 +374,76 @@ class ProjectMemoryRepository:
                 created_at=r[3],
                 updated_at=r[4],
                 analyses_count=r[5],
+                user_id=r[6] if len(r) > 6 else None,
             )
         finally:
             conn.close()
 
-    def delete_project(self, project_id: str) -> bool:
+    def delete_project(self, project_id: str, user_id: Optional[str] = None, user_token: Optional[str] = None) -> bool:
         self._ensure_configured()
-        project = self.get_project(project_id)
+        project = self.get_project(project_id, user_id=user_id, user_token=user_token)
         if not project:
             raise ProjectNotFoundError(f"Project '{project_id}' not found.")
 
         if not self._active_sqlite_mode:
             url = f"{self.supabase_url}/rest/v1/projects?id=eq.{project_id}"
+            if user_id:
+                url = f"{self.supabase_url}/rest/v1/projects?id=eq.{project_id}&user_id=eq.{user_id}"
             try:
-                res = httpx.delete(url, headers=self._get_supabase_headers(), timeout=10.0)
+                res = httpx.delete(url, headers=self._get_supabase_headers(user_token), timeout=10.0)
                 if res.status_code in (200, 204):
                     return True
                 raise DatabaseOperationError(f"Supabase delete_project failed (HTTP {res.status_code}): {res.text}")
+            except httpx.TimeoutException as te:
+                raise DatabaseTimeoutError("Database operation timed out. Please try again.") from te
             except httpx.RequestError as e:
-                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
+                raise DatabaseConnectionError(f"Network error connecting to Supabase: {str(e)}") from e
 
         _init_local_db()
         conn = sqlite3.connect(LOCAL_DB_PATH)
         try:
             conn.execute("PRAGMA foreign_keys = ON")
-            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+            if user_id:
+                conn.execute("DELETE FROM projects WHERE id = ? AND user_id = ?", (project_id, user_id))
+            else:
+                conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    def delete_analysis(self, project_id: str, analysis_id: str, user_id: Optional[str] = None, user_token: Optional[str] = None) -> bool:
+        self._ensure_configured()
+        project = self.get_project(project_id, user_id=user_id, user_token=user_token)
+        if not project:
+            raise ProjectNotFoundError(f"Project '{project_id}' not found.")
+
+        if not self._active_sqlite_mode:
+            chk_url = f"{self.supabase_url}/rest/v1/analyses?id=eq.{analysis_id}&project_id=eq.{project_id}&select=id"
+            try:
+                chk_res = httpx.get(chk_url, headers=self._get_supabase_headers(user_token), timeout=10.0)
+                if chk_res.status_code != 200 or not chk_res.json():
+                    raise AnalysisNotFoundError(f"Analysis '{analysis_id}' not found in project '{project_id}'.")
+
+                del_url = f"{self.supabase_url}/rest/v1/analyses?id=eq.{analysis_id}&project_id=eq.{project_id}"
+                res = httpx.delete(del_url, headers=self._get_supabase_headers(user_token), timeout=10.0)
+                if res.status_code in (200, 204):
+                    return True
+                raise DatabaseOperationError(f"Supabase delete_analysis failed (HTTP {res.status_code}): {res.text}")
+            except httpx.TimeoutException as te:
+                raise DatabaseTimeoutError("Database operation timed out. Please try again.") from te
+            except httpx.RequestError as e:
+                raise DatabaseConnectionError(f"Network error connecting to Supabase: {str(e)}") from e
+
+        _init_local_db()
+        conn = sqlite3.connect(LOCAL_DB_PATH)
+        try:
+            conn.execute("PRAGMA foreign_keys = ON")
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM analyses WHERE id = ? AND project_id = ?", (analysis_id, project_id))
+            if not cursor.fetchone():
+                raise AnalysisNotFoundError(f"Analysis '{analysis_id}' not found in project '{project_id}'.")
+            cursor.execute("DELETE FROM analyses WHERE id = ? AND project_id = ?", (analysis_id, project_id))
             conn.commit()
             return True
         finally:
@@ -352,9 +453,9 @@ class ProjectMemoryRepository:
     # ANALYSIS PERSISTENCE & RETRIEVAL
     # =========================================================================
 
-    def save_analysis(self, project_id: str, result: ShiftlyAnalysisResult) -> StoredAnalysisSummary:
+    def save_analysis(self, project_id: str, result: ShiftlyAnalysisResult, user_id: Optional[str] = None, user_token: Optional[str] = None) -> StoredAnalysisSummary:
         self._ensure_configured()
-        project = self.get_project(project_id)
+        project = self.get_project(project_id, user_id=user_id, user_token=user_token)
         if not project:
             raise ProjectNotFoundError(f"Project with ID '{project_id}' does not exist.")
 
@@ -371,7 +472,7 @@ class ProjectMemoryRepository:
 
         if not self._active_sqlite_mode:
             try:
-                headers = {**self._get_supabase_headers(), "Prefer": "resolution=merge-duplicates"}
+                headers = {**self._get_supabase_headers(user_token), "Prefer": "resolution=merge-duplicates"}
                 analysis_payload = {
                     "id": analysis_id,
                     "project_id": project_id,
@@ -388,7 +489,7 @@ class ProjectMemoryRepository:
                     raise DatabaseOperationError(f"Supabase save_analysis failed (HTTP {a_res.status_code}): {a_res.text}")
 
                 # Delete previous children if overwriting
-                del_hdr = self._get_supabase_headers()
+                del_hdr = self._get_supabase_headers(user_token)
                 httpx.delete(f"{self.supabase_url}/rest/v1/key_points?analysis_id=eq.{analysis_id}", headers=del_hdr, timeout=10.0)
                 httpx.delete(f"{self.supabase_url}/rest/v1/action_items?analysis_id=eq.{analysis_id}", headers=del_hdr, timeout=10.0)
                 httpx.delete(f"{self.supabase_url}/rest/v1/decisions?analysis_id=eq.{analysis_id}", headers=del_hdr, timeout=10.0)
@@ -481,8 +582,10 @@ class ProjectMemoryRepository:
                     decisions_count=len(result.decisions),
                     important_dates_count=len(result.importantDates),
                 )
+            except httpx.TimeoutException as te:
+                raise DatabaseTimeoutError("Database operation timed out. Please try again.") from te
             except httpx.RequestError as e:
-                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
+                raise DatabaseConnectionError(f"Network error connecting to Supabase: {str(e)}") from e
 
         # Test SQLite path
         stats_json = result.stats.model_dump_json()
@@ -563,16 +666,16 @@ class ProjectMemoryRepository:
         finally:
             conn.close()
 
-    def list_project_analyses(self, project_id: str) -> List[StoredAnalysisSummary]:
+    def list_project_analyses(self, project_id: str, user_id: Optional[str] = None, user_token: Optional[str] = None) -> List[StoredAnalysisSummary]:
         self._ensure_configured()
-        project = self.get_project(project_id)
+        project = self.get_project(project_id, user_id=user_id, user_token=user_token)
         if not project:
             raise ProjectNotFoundError(f"Project '{project_id}' not found.")
 
         if not self._active_sqlite_mode:
             url = f"{self.supabase_url}/rest/v1/analyses?project_id=eq.{project_id}&select=*,key_points(count),action_items(count),decisions(count),important_dates(count)&order=created_at.desc"
             try:
-                res = httpx.get(url, headers=self._get_supabase_headers(), timeout=10.0)
+                res = httpx.get(url, headers=self._get_supabase_headers(user_token), timeout=10.0)
                 if res.status_code == 200:
                     rows = res.json()
                     analyses: List[StoredAnalysisSummary] = []
@@ -598,8 +701,10 @@ class ProjectMemoryRepository:
                         )
                     return analyses
                 raise DatabaseOperationError(f"Supabase list_project_analyses failed (HTTP {res.status_code}): {res.text}")
+            except httpx.TimeoutException as te:
+                raise DatabaseTimeoutError("Database operation timed out. Please try again.") from te
             except httpx.RequestError as e:
-                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
+                raise DatabaseConnectionError(f"Network error connecting to Supabase: {str(e)}") from e
 
         _init_local_db()
         conn = sqlite3.connect(LOCAL_DB_PATH)
@@ -636,13 +741,16 @@ class ProjectMemoryRepository:
         finally:
             conn.close()
 
-    def get_analysis(self, project_id: str, analysis_id: str) -> Optional[ShiftlyAnalysisResult]:
+    def get_analysis(self, project_id: str, analysis_id: str, user_id: Optional[str] = None, user_token: Optional[str] = None) -> Optional[ShiftlyAnalysisResult]:
         self._ensure_configured()
+        project = self.get_project(project_id, user_id=user_id, user_token=user_token)
+        if not project:
+            return None
 
         if not self._active_sqlite_mode:
             url = f"{self.supabase_url}/rest/v1/analyses?id=eq.{analysis_id}&project_id=eq.{project_id}&select=*,key_points(*),action_items(*),decisions(*),important_dates(*)"
             try:
-                res = httpx.get(url, headers=self._get_supabase_headers(), timeout=10.0)
+                res = httpx.get(url, headers=self._get_supabase_headers(user_token), timeout=10.0)
                 if res.status_code == 200:
                     rows = res.json()
                     if not rows:
@@ -702,8 +810,10 @@ class ProjectMemoryRepository:
                         importantDates=important_dates,
                     )
                 raise DatabaseOperationError(f"Supabase get_analysis failed (HTTP {res.status_code}): {res.text}")
+            except httpx.TimeoutException as te:
+                raise DatabaseTimeoutError("Database operation timed out. Please try again.") from te
             except httpx.RequestError as e:
-                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
+                raise DatabaseConnectionError(f"Network error connecting to Supabase: {str(e)}") from e
 
         _init_local_db()
         conn = sqlite3.connect(LOCAL_DB_PATH)
@@ -788,15 +898,18 @@ class ProjectMemoryRepository:
     # DETERMINISTIC SEARCH
     # =========================================================================
 
-    def search_project_memory(self, project_id: str, query: str) -> List[SearchResultItem]:
+    def search_project_memory(self, project_id: str, query: str, user_id: Optional[str] = None, user_token: Optional[str] = None) -> List[SearchResultItem]:
         self._ensure_configured()
+        project = self.get_project(project_id, user_id=user_id, user_token=user_token)
+        if not project:
+            raise ProjectNotFoundError(f"Project '{project_id}' not found.")
         clean_q = query.strip().lower()
         if not clean_q:
             return []
 
         if not self._active_sqlite_mode:
             results: List[SearchResultItem] = []
-            headers = self._get_supabase_headers()
+            headers = self._get_supabase_headers(user_token)
             try:
                 # 1. Key points search
                 kp_url = f"{self.supabase_url}/rest/v1/key_points?select=content,source_reference,created_at,analyses!inner(id,title,project_id)&analyses.project_id=eq.{project_id}&content=ilike.*{clean_q}*"
@@ -883,8 +996,10 @@ class ProjectMemoryRepository:
                         )
 
                 return results
+            except httpx.TimeoutException as te:
+                raise DatabaseTimeoutError("Database operation timed out. Please try again.") from te
             except httpx.RequestError as e:
-                raise DatabaseOperationError(f"Network error connecting to Supabase: {str(e)}") from e
+                raise DatabaseConnectionError(f"Network error connecting to Supabase: {str(e)}") from e
 
         # Test SQLite path
         _init_local_db()

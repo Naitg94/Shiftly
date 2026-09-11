@@ -1,5 +1,5 @@
 from typing import List, Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class SourceReference(BaseModel):
@@ -69,4 +69,10 @@ class ShiftlyAnalysisResult(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
-    text: str = Field(..., description="Raw text of the conversation, chat, email thread, or transcript")
+    text: str = Field(
+        ...,
+        min_length=1,
+        max_length=200_000,
+        description="Raw text of the conversation, chat, email thread, or transcript",
+    )
+

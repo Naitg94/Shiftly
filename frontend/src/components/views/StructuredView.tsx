@@ -40,6 +40,7 @@ export default function StructuredView({ result, onOpenSource }: StructuredViewP
                     onClick={() => onOpenSource(act.source)}
                     className="shrink-0 p-1 text-slate-500 hover:text-blue-400 rounded transition-colors"
                     title="View source citation"
+                    aria-label={`View source citation for action: ${act.action.slice(0, 30)}`}
                   >
                     <Info className="h-3.5 w-3.5" />
                   </button>
@@ -104,6 +105,7 @@ export default function StructuredView({ result, onOpenSource }: StructuredViewP
                 onClick={() => onOpenSource(dec.source)}
                 className="shrink-0 inline-flex items-center gap-1 rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1 text-xs text-slate-400 hover:text-blue-300 hover:border-blue-500/40 transition-colors"
                 title="View source citation"
+                aria-label={`View source citation for decision: ${dec.decision.slice(0, 30)}`}
               >
                 <Info className="h-3.5 w-3.5 text-blue-400" />
                 <span className="hidden sm:inline text-[11px]">Source</span>
@@ -142,6 +144,7 @@ export default function StructuredView({ result, onOpenSource }: StructuredViewP
                     onClick={() => onOpenSource(dt.source)}
                     className="p-1 text-slate-500 hover:text-blue-400 rounded transition-colors"
                     title="View source citation"
+                    aria-label={`View source citation for date: ${dt.title}`}
                   >
                     <Info className="h-3.5 w-3.5" />
                   </button>
@@ -182,6 +185,7 @@ export default function StructuredView({ result, onOpenSource }: StructuredViewP
                 onClick={() => onOpenSource(kp.source)}
                 className="shrink-0 p-1 text-slate-500 hover:text-blue-400 rounded transition-colors"
                 title="View source citation"
+                aria-label={`View source citation for key point: ${kp.point.slice(0, 30)}`}
               >
                 <Info className="h-3.5 w-3.5" />
               </button>
