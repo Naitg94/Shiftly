@@ -8,7 +8,7 @@ load_dotenv()
 
 class Settings:
     PROJECT_NAME: str = "Shiftly API"
-    VERSION: str = "0.2.0"
+    VERSION: str = "0.4.0"
     TAGLINE: str = "Find what matters."
 
     # CORS
@@ -20,7 +20,11 @@ class Settings:
 
     # Gemini
     GEMINI_API_KEY: str | None = os.getenv("GEMINI_API_KEY")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+
+    # Supabase PostgreSQL Project Memory
+    SUPABASE_URL: str | None = os.getenv("SUPABASE_URL")
+    SUPABASE_ANON_KEY: str | None = os.getenv("SUPABASE_ANON_KEY")
 
 
 settings = Settings()

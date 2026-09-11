@@ -5,13 +5,16 @@ import Navbar from "@/components/Navbar";
 import InputSection from "@/components/InputSection";
 import ProcessingState from "@/components/ProcessingState";
 import ResultsDashboard from "@/components/ResultsDashboard";
+import ProjectMemory from "@/components/ProjectMemory";
 import { MOCK_ANALYSIS_RESULT } from "@/data/mockData";
 import { ShiftlyAnalysisResult } from "@/types/analysis";
 import { Layers } from "lucide-react";
 
 type AppStage = "input" | "processing" | "results";
+type MainTab = "analyze" | "memory";
 
 export default function Home() {
+  const [mainTab, setMainTab] = useState<MainTab>("analyze");
   const [stage, setStage] = useState<AppStage>("input");
   const [inputText, setInputText] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -19,6 +22,9 @@ export default function Home() {
   const [analysisResult, setAnalysisResult] = useState<ShiftlyAnalysisResult>(MOCK_ANALYSIS_RESULT);
   const [isApiDone, setIsApiDone] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Memory view states
+  const [isViewingMemoryResult, setIsViewingMemoryResult] = useState(false);
 
   const handleStartAnalysis = async () => {
     setErrorMessage(null);
@@ -62,7 +68,7 @@ export default function Home() {
             detail = errJson.detail;
           }
         } catch {
-          // fallback to status text
+          // fallback
         }
         throw new Error(detail);
       }
@@ -89,6 +95,7 @@ export default function Home() {
     setStage("input");
     setErrorMessage(null);
     setIsApiDone(false);
+    setIsViewingMemoryResult(false);
   };
 
   const handleUseDemoPreset = () => {
@@ -97,39 +104,73 @@ export default function Home() {
     setStage("results");
   };
 
+  const handleTabChange = (tab: MainTab) => {
+    setMainTab(tab);
+    if (tab === "analyze") {
+      setIsViewingMemoryResult(false);
+    }
+  };
+
+  const handleLoadMemoryAnalysis = (loaded: ShiftlyAnalysisResult) => {
+    setAnalysisResult(loaded);
+    setIsViewingMemoryResult(true);
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
       {/* SaaS Navigation */}
-      <Navbar onReset={handleReset} isResultsState={stage === "results"} />
+      <Navbar
+        activeTab={mainTab}
+        onTabChange={handleTabChange}
+      />
 
       {/* Main Content Body */}
       <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10 flex flex-col justify-start">
-        {stage === "input" && (
-          <InputSection
-            inputText={inputText}
-            setInputText={setInputText}
-            selectedFile={selectedFile}
-            setSelectedFile={setSelectedFile}
-            activeTab={activeTab}
-            setActiveTab={setActiveTab}
-            onAnalyze={handleStartAnalysis}
-            errorMessage={errorMessage}
-            onUseDemoPreset={handleUseDemoPreset}
-          />
-        )}
+        {mainTab === "analyze" ? (
+          <>
+            {stage === "input" && (
+              <InputSection
+                inputText={inputText}
+                setInputText={setInputText}
+                selectedFile={selectedFile}
+                setSelectedFile={setSelectedFile}
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                onAnalyze={handleStartAnalysis}
+                errorMessage={errorMessage}
+                onUseDemoPreset={handleUseDemoPreset}
+              />
+            )}
 
-        {stage === "processing" && (
-          <ProcessingState
-            isDone={isApiDone}
-            onComplete={handleProcessingComplete}
-          />
-        )}
+            {stage === "processing" && (
+              <ProcessingState
+                isDone={isApiDone}
+                onComplete={handleProcessingComplete}
+              />
+            )}
 
-        {stage === "results" && (
-          <ResultsDashboard
-            result={analysisResult}
-            onReset={handleReset}
-          />
+            {stage === "results" && (
+              <ResultsDashboard
+                result={analysisResult}
+                onReset={handleReset}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            {isViewingMemoryResult ? (
+              <ResultsDashboard
+                result={analysisResult}
+                onReset={handleReset}
+                isFromMemory={true}
+                onBackToMemory={() => setIsViewingMemoryResult(false)}
+              />
+            ) : (
+              <ProjectMemory
+                onLoadAnalysis={handleLoadMemoryAnalysis}
+              />
+            )}
+          </>
         )}
       </main>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   ShiftlyAnalysisResult,
   SourceReference,
@@ -16,16 +16,28 @@ import {
   Calendar,
   Gavel,
   CheckSquare,
+  Bookmark,
+  Check,
+  Loader2,
+  FolderPlus,
+  AlertCircle,
+  X,
+  ArrowLeft,
+  Plus,
 } from "lucide-react";
 import KeyPointsView from "./views/KeyPointsView";
 import SummaryView from "./views/SummaryView";
 import TableView from "./views/TableView";
 import StructuredView from "./views/StructuredView";
 import SourceModal from "./SourceModal";
+import { Project } from "@/types/project";
+import { fetchProjects, createProject, saveAnalysisToProject } from "@/lib/api";
 
 interface ResultsDashboardProps {
   result: ShiftlyAnalysisResult;
   onReset: () => void;
+  onBackToMemory?: () => void;
+  isFromMemory?: boolean;
 }
 
 type ViewMode = "keypoints" | "summary" | "table" | "structured";
@@ -33,9 +45,25 @@ type ViewMode = "keypoints" | "summary" | "table" | "structured";
 export default function ResultsDashboard({
   result,
   onReset,
+  onBackToMemory,
+  isFromMemory = false,
 }: ResultsDashboardProps) {
   const [activeView, setActiveView] = useState<ViewMode>("keypoints");
   const [selectedSource, setSelectedSource] = useState<SourceReference | null>(null);
+
+  // Save to Project State
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Inline new project creation inside modal
+  const [showNewProjectInput, setShowNewProjectInput] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
 
   const tabs: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
     { id: "keypoints", label: "Key Points", icon: <ListChecks className="h-4 w-4" /> },
@@ -43,6 +71,63 @@ export default function ResultsDashboard({
     { id: "table", label: "Table", icon: <Table className="h-4 w-4" /> },
     { id: "structured", label: "Structured", icon: <LayoutGrid className="h-4 w-4" /> },
   ];
+
+  const handleOpenSaveModal = async () => {
+    setIsSaveModalOpen(true);
+    setSaveSuccess(null);
+    setSaveError(null);
+    setIsLoadingProjects(true);
+    try {
+      const data = await fetchProjects();
+      setProjects(data);
+      if (data.length > 0 && !selectedProjectId) {
+        setSelectedProjectId(data[0].id);
+      }
+    } catch {
+      setSaveError("Failed to fetch projects list");
+    } finally {
+      setIsLoadingProjects(false);
+    }
+  };
+
+  const handleCreateProjectInline = async () => {
+    if (!newProjectName.trim()) return;
+    setIsCreatingProject(true);
+    setSaveError(null);
+    try {
+      const created = await createProject({ name: newProjectName.trim() });
+      setProjects((prev) => [...prev, created]);
+      setSelectedProjectId(created.id);
+      setNewProjectName("");
+      setShowNewProjectInput(false);
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : "Failed to create project");
+    } finally {
+      setIsCreatingProject(false);
+    }
+  };
+
+  const handleSaveToProject = async () => {
+    if (!selectedProjectId) {
+      setSaveError("Please select or create a project");
+      return;
+    }
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      const res = await saveAnalysisToProject(selectedProjectId, result);
+      const projName = projects.find((p) => p.id === selectedProjectId)?.name || "Project";
+      setSaveSuccess(`Saved to "${projName}" successfully!`);
+      setTimeout(() => {
+        setIsSaveModalOpen(false);
+        setSaveSuccess(null);
+      }, 1500);
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save to project");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-6 animate-in fade-in duration-200">
@@ -62,14 +147,35 @@ export default function ResultsDashboard({
           </h2>
         </div>
 
-        {/* Reset / New Analysis */}
-        <button
-          onClick={onReset}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-900/80 px-4 py-2 text-xs sm:text-sm font-medium text-slate-200 hover:bg-slate-800 hover:text-white transition-colors self-start sm:self-auto shadow-sm"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-          <span>New Analysis</span>
-        </button>
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2.5 flex-wrap self-start sm:self-auto">
+          {isFromMemory && onBackToMemory ? (
+            <button
+              onClick={onBackToMemory}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-900/80 px-4 py-2 text-xs sm:text-sm font-medium text-slate-200 hover:bg-slate-800 hover:text-white transition-colors shadow-sm"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              <span>Back to Memory</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleOpenSaveModal}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-500/30 bg-blue-600/10 px-4 py-2 text-xs sm:text-sm font-medium text-blue-400 hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+            >
+              <Bookmark className="h-3.5 w-3.5" />
+              <span>Save to Project</span>
+            </button>
+          )}
+
+          {/* Reset / New Analysis */}
+          <button
+            onClick={onReset}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-900/80 px-4 py-2 text-xs sm:text-sm font-medium text-slate-200 hover:bg-slate-800 hover:text-white transition-colors shadow-sm"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            <span>New Analysis</span>
+          </button>
+        </div>
       </div>
 
       {/* Metrics Row */}
@@ -183,6 +289,149 @@ export default function ResultsDashboard({
         source={selectedSource}
         onClose={() => setSelectedSource(null)}
       />
+
+      {/* Save to Project Modal */}
+      {isSaveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Bookmark className="h-5 w-5 text-blue-400" />
+                <h3 className="text-base font-bold text-white">Save to Project Memory</h3>
+              </div>
+              <button
+                onClick={() => setIsSaveModalOpen(false)}
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {saveSuccess ? (
+              <div className="py-6 text-center space-y-2">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <Check className="h-6 w-6" />
+                </div>
+                <p className="text-sm font-semibold text-white">{saveSuccess}</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {saveError && (
+                  <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    <span>{saveError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-slate-300">
+                    Target Project
+                  </label>
+
+                  {isLoadingProjects ? (
+                    <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-950 p-3 rounded-xl border border-slate-800">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" />
+                      <span>Loading projects...</span>
+                    </div>
+                  ) : projects.length === 0 && !showNewProjectInput ? (
+                    <div className="p-3 rounded-xl border border-slate-800 bg-slate-950 text-xs text-slate-400 space-y-2">
+                      <p>No projects found. Create one to save this analysis.</p>
+                      <button
+                        type="button"
+                        onClick={() => setShowNewProjectInput(true)}
+                        className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 font-medium"
+                      >
+                        <FolderPlus className="h-3.5 w-3.5" />
+                        <span>Create New Project</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <select
+                        value={selectedProjectId}
+                        onChange={(e) => setSelectedProjectId(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500 transition-colors"
+                      >
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+
+                      {!showNewProjectInput && (
+                        <button
+                          type="button"
+                          onClick={() => setShowNewProjectInput(true)}
+                          className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-blue-400 transition-colors"
+                        >
+                          <Plus className="h-3 w-3" />
+                          <span>+ Or create a new project</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {showNewProjectInput && (
+                    <div className="p-3 rounded-xl border border-slate-800 bg-slate-950 space-y-2.5">
+                      <label className="text-[11px] font-medium text-slate-400">
+                        New Project Name
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={newProjectName}
+                          onChange={(e) => setNewProjectName(e.target.value)}
+                          placeholder="e.g. Riverside Office"
+                          className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                        />
+                        <button
+                          type="button"
+                          disabled={isCreatingProject || !newProjectName.trim()}
+                          onClick={handleCreateProjectInline}
+                          className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium disabled:opacity-50"
+                        >
+                          {isCreatingProject ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            "Create"
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowNewProjectInput(false)}
+                          className="text-xs text-slate-400 hover:text-white px-1"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsSaveModalOpen(false)}
+                    className="px-3.5 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSaving || !selectedProjectId}
+                    onClick={handleSaveToProject}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-all shadow-md shadow-blue-600/20 disabled:opacity-50"
+                  >
+                    {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    <span>Save Intelligence</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

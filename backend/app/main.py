@@ -2,7 +2,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.v1.endpoints import health, analyze
+from app.api.v1.endpoints import health, analyze, projects
 
 # Setup logging
 logging.basicConfig(
@@ -28,6 +28,8 @@ app.add_middleware(
 # Register routers
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(analyze.router, prefix="/api", tags=["analyze"])
+app.include_router(projects.router, prefix="/api", tags=["projects"])
+
 
 
 @app.get("/", summary="Root Endpoint")
