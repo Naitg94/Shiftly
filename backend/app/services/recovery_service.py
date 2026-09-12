@@ -229,6 +229,70 @@ def validate_email_input(email: str) -> str:
     return trimmed
 
 
+def _normalize_name(name: Optional[str]) -> str:
+    """Normalizes display names for comparison by collapsing internal whitespace and lowercasing."""
+    if not name:
+        return ""
+    return re.sub(r"\s+", " ", str(name).strip().lower())
+
+
+def _extract_display_candidates(raw_meta: Optional[dict], email: str) -> list[str]:
+    """Extracts all valid display identity candidate strings from user metadata and email prefix."""
+    meta = raw_meta or {}
+    candidates = []
+    if meta.get("display_name"):
+        candidates.append(str(meta.get("display_name")))
+    if meta.get("name"):
+        candidates.append(str(meta.get("name")))
+    if meta.get("full_name"):
+        candidates.append(str(meta.get("full_name")))
+    if meta.get("user_name"):
+        candidates.append(str(meta.get("user_name")))
+    if meta.get("username"):
+        candidates.append(str(meta.get("username")))
+    if email and "@" in email:
+        candidates.append(email.split("@")[0])
+    return candidates
+
+
+def _check_name_match(input_name: str, candidates: list[str]) -> bool:
+    """Checks if normalized input matches any normalized candidate."""
+    norm_input = _normalize_name(input_name)
+    if not norm_input:
+        return False
+    norm_candidates = [_normalize_name(c) for c in candidates if c]
+    return norm_input in norm_candidates
+
+
+def get_db_connection():
+    """Establishes a direct connection to PostgreSQL, handling unescaped special characters in credentials."""
+    raw = settings.DATABASE_URL
+    if not raw:
+        return None
+    try:
+        prefix, rest = raw.split("://", 1)
+        user_pass, host_port_db = rest.rsplit("@", 1)
+        user, password = user_pass.split(":", 1)
+        host_port, dbname = host_port_db.split("/", 1)
+        if ":" in host_port:
+            host, port = host_port.split(":", 1)
+        else:
+            host, port = host_port, 5432
+        import psycopg2
+        return psycopg2.connect(
+            user=user,
+            password=password,
+            host=host,
+            port=int(port),
+            dbname=dbname,
+            sslmode="require",
+            connect_timeout=5,
+        )
+    except Exception as e:
+        logger.error("Failed to connect to PostgreSQL for recovery: %s", type(e).__name__)
+        return None
+
+
 async def verify_account_for_recovery(username: str, email: str) -> str:
     """
     Verifies that the supplied username (display name) and email address correspond
@@ -238,84 +302,128 @@ async def verify_account_for_recovery(username: str, email: str) -> str:
     clean_username = validate_username_input(username)
     clean_email = validate_email_input(email)
 
-    # 1. Non-production / Test Mode Fallback (when TEST_USE_SQLITE is set or service role key is unconfigured)
-    # In production (settings.ENVIRONMENT == "production"), this fallback is strictly disabled.
-    is_dev_fallback = settings.ENVIRONMENT != "production" and (
-        os.getenv("TEST_USE_SQLITE") == "true" or not settings.SUPABASE_SERVICE_ROLE_KEY
-    )
-    if is_dev_fallback:
+    # 1. Production Safety Check: in production mode, SUPABASE_SERVICE_ROLE_KEY is strictly required
+    if settings.ENVIRONMENT == "production" and not settings.SUPABASE_SERVICE_ROLE_KEY:
+        logger.error("Password recovery requested in production mode without SUPABASE_SERVICE_ROLE_KEY.")
+        raise RecoveryServiceUnavailableError("Password recovery service is not configured on the backend.")
+
+    # 2. Test Mode Fallback (when TEST_USE_SQLITE is explicitly set for isolated test runs)
+    if os.getenv("TEST_USE_SQLITE") == "true":
         with _test_users_lock:
             user = _test_users.get(clean_email)
             if not user:
                 logger.warning("recovery_verify_failed reason=user_not_found")
                 raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
 
-            stored_display = user.get("display_name", "")
-            if stored_display.strip().lower() != clean_username.lower():
+            candidates = [user.get("display_name"), user.get("name"), clean_email.split("@")[0]]
+            if not _check_name_match(clean_username, candidates):
                 logger.warning("recovery_verify_failed reason=display_name_mismatch")
                 raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
 
-            # Match successful! Issue short-lived recovery token
             logger.info("recovery_verify_success mode=test user_id=%s", user["id"])
             return issue_recovery_token(user_id=user["id"], email=clean_email, username=clean_username)
 
-    # 2. Live Supabase Auth Mode
-    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_ROLE_KEY:
-        logger.error("Password recovery requested but SUPABASE_SERVICE_ROLE_KEY or SUPABASE_URL is missing.")
+    # 2. Live Supabase PostgreSQL Mode (Direct auth.users lookup via DATABASE_URL)
+    db_conn = get_db_connection()
+    if db_conn is not None:
+        try:
+            with db_conn:
+                with db_conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT id, email, raw_user_meta_data FROM auth.users WHERE LOWER(TRIM(email)) = LOWER(TRIM(%s)) LIMIT 1",
+                        (clean_email,)
+                    )
+                    row = cur.fetchone()
+            if not row:
+                logger.warning("recovery_verify_failed reason=user_not_found")
+                raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
+
+            user_id, u_email, raw_meta = row
+            candidates = _extract_display_candidates(raw_meta, u_email or clean_email)
+            if not _check_name_match(clean_username, candidates):
+                logger.warning("recovery_verify_failed reason=display_name_mismatch")
+                raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
+
+            logger.info("recovery_verify_success mode=postgres user_id=%s", user_id)
+            return issue_recovery_token(user_id=str(user_id), email=clean_email, username=clean_username)
+        finally:
+            try:
+                db_conn.close()
+            except Exception:
+                pass
+
+    # 3. Live Supabase GoTrue Admin API Mode (if SUPABASE_SERVICE_ROLE_KEY is provided)
+    if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY:
+        admin_users_url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/admin/users"
+        headers = {
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(admin_users_url, headers=headers, params={"page": 1, "per_page": 1000})
+
+            if resp.status_code != 200:
+                logger.error("Supabase GoTrue admin users API returned HTTP %d", resp.status_code)
+                raise RecoveryServiceUnavailableError("Authentication administrative service temporarily unavailable.")
+
+            users_payload = resp.json()
+            users_list = users_payload.get("users", []) if isinstance(users_payload, dict) else users_payload
+
+            matched_user = None
+            for u in users_list:
+                u_email = str(u.get("email", "")).strip().lower()
+                if u_email == clean_email:
+                    matched_user = u
+                    break
+
+            if not matched_user:
+                logger.warning("recovery_verify_failed reason=user_not_found")
+                raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
+
+            metadata = matched_user.get("user_metadata", {}) or {}
+            candidates = _extract_display_candidates(metadata, clean_email)
+            if not _check_name_match(clean_username, candidates):
+                logger.warning("recovery_verify_failed reason=display_name_mismatch")
+                raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
+
+            user_id = matched_user.get("id")
+            if not user_id:
+                raise RecoveryServiceUnavailableError("Invalid user data received from authentication provider.")
+
+            logger.info("recovery_verify_success mode=supabase user_id=%s", user_id)
+            return issue_recovery_token(user_id=user_id, email=clean_email, username=clean_username)
+
+        except httpx.RequestError as exc:
+            logger.error("Network error communicating with Supabase Admin Auth: %s", exc)
+            raise RecoveryServiceUnavailableError("Authentication service temporarily unavailable.")
+
+    # 4. If neither database nor service role key is configured:
+    if settings.ENVIRONMENT == "production":
+        logger.error("Password recovery requested but neither DATABASE_URL nor SUPABASE_SERVICE_ROLE_KEY is configured.")
         raise RecoveryServiceUnavailableError("Password recovery service is not configured on the backend.")
 
-    admin_users_url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/admin/users"
-    headers = {
-        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(admin_users_url, headers=headers, params={"page": 1, "per_page": 1000})
-
-        if resp.status_code != 200:
-            logger.error("Supabase GoTrue admin users API returned HTTP %d", resp.status_code)
-            raise RecoveryServiceUnavailableError("Authentication administrative service temporarily unavailable.")
-
-        users_payload = resp.json()
-        users_list = users_payload.get("users", []) if isinstance(users_payload, dict) else users_payload
-
-        matched_user = None
-        for u in users_list:
-            u_email = str(u.get("email", "")).strip().lower()
-            if u_email == clean_email:
-                matched_user = u
-                break
-
-        if not matched_user:
+    # Fallback in local dev when no backend database connection exists
+    with _test_users_lock:
+        user = _test_users.get(clean_email)
+        if not user:
             logger.warning("recovery_verify_failed reason=user_not_found")
             raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
 
-        # Check display_name in user_metadata
-        metadata = matched_user.get("user_metadata", {}) or {}
-        user_display = str(metadata.get("display_name") or metadata.get("name") or "").strip()
-
-        if user_display.lower() != clean_username.lower():
+        candidates = [user.get("display_name"), user.get("name"), clean_email.split("@")[0]]
+        if not _check_name_match(clean_username, candidates):
             logger.warning("recovery_verify_failed reason=display_name_mismatch")
             raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
 
-        user_id = matched_user.get("id")
-        if not user_id:
-            raise RecoveryServiceUnavailableError("Invalid user data received from authentication provider.")
-
-        logger.info("recovery_verify_success mode=supabase user_id=%s", user_id)
-        return issue_recovery_token(user_id=user_id, email=clean_email, username=clean_username)
-
-    except httpx.RequestError as exc:
-        logger.error("Network error communicating with Supabase Admin Auth: %s", exc)
-        raise RecoveryServiceUnavailableError("Authentication service temporarily unavailable.")
+        logger.info("recovery_verify_success mode=test user_id=%s", user["id"])
+        return issue_recovery_token(user_id=user["id"], email=clean_email, username=clean_username)
 
 
 async def reset_password_with_token(token: str, new_password: str, confirm_password: str) -> None:
     """
     Validates the recovery token, verifies password constraints, and updates the user's
-    password in Supabase Auth via administrative GoTrue API.
+    password in Supabase Auth (via PostgreSQL auth.users bcrypt crypt or GoTrue Admin API).
     """
     # 1. Validate password constraints
     if not new_password:
@@ -333,11 +441,13 @@ async def reset_password_with_token(token: str, new_password: str, confirm_passw
     # 2. Validate and consume recovery authorization token (atomic single-use)
     token_data = validate_and_consume_token(token)
 
-    # 3. Update password in Non-production / Test Mode
-    is_dev_fallback = settings.ENVIRONMENT != "production" and (
-        os.getenv("TEST_USE_SQLITE") == "true" or not settings.SUPABASE_SERVICE_ROLE_KEY
-    )
-    if is_dev_fallback:
+    # 3. Production Safety Check: in production mode, SUPABASE_SERVICE_ROLE_KEY is strictly required
+    if settings.ENVIRONMENT == "production" and not settings.SUPABASE_SERVICE_ROLE_KEY:
+        logger.error("Password reset requested in production mode without SUPABASE_SERVICE_ROLE_KEY.")
+        raise RecoveryServiceUnavailableError("Password recovery service is not configured on the backend.")
+
+    # 4. Update password in Test Mode (when TEST_USE_SQLITE is explicitly set)
+    if os.getenv("TEST_USE_SQLITE") == "true":
         with _test_users_lock:
             user = _test_users.get(token_data.email)
             if user:
@@ -345,28 +455,55 @@ async def reset_password_with_token(token: str, new_password: str, confirm_passw
             logger.info("password_reset_success mode=test user_id=%s", token_data.user_id)
             return
 
-    # 4. Update password in Live Supabase Mode
-    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_ROLE_KEY:
-        logger.error("Password reset requested but SUPABASE_SERVICE_ROLE_KEY is missing.")
+    # 4. Live Supabase PostgreSQL Mode (Direct auth.users update using crypt gen_salt)
+    db_conn = get_db_connection()
+    if db_conn is not None:
+        try:
+            with db_conn:
+                with db_conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE auth.users SET encrypted_password = crypt(%s, gen_salt('bf', 10)), updated_at = NOW() WHERE id = %s",
+                        (new_password, token_data.user_id)
+                    )
+            logger.info("password_reset_success mode=postgres user_id=%s", token_data.user_id)
+            return
+        finally:
+            try:
+                db_conn.close()
+            except Exception:
+                pass
+
+    # 5. Live Supabase GoTrue Admin API Mode (if SUPABASE_SERVICE_ROLE_KEY is configured)
+    if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY:
+        update_user_url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/admin/users/{token_data.user_id}"
+        headers = {
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.put(update_user_url, headers=headers, json={"password": new_password})
+
+            if resp.status_code != 200:
+                logger.error("Supabase GoTrue admin user update returned HTTP %d", resp.status_code)
+                raise RecoveryServiceUnavailableError("Failed to update password. Please try again.")
+
+            logger.info("password_reset_success mode=supabase user_id=%s", token_data.user_id)
+            return
+
+        except httpx.RequestError as exc:
+            logger.error("Network error communicating with Supabase Admin Auth during password update: %s", exc)
+            raise RecoveryServiceUnavailableError("Authentication service temporarily unavailable.")
+
+    # 6. Production check
+    if settings.ENVIRONMENT == "production":
         raise RecoveryServiceUnavailableError("Password recovery service is not configured on the backend.")
 
-    update_user_url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/admin/users/{token_data.user_id}"
-    headers = {
-        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.put(update_user_url, headers=headers, json={"password": new_password})
-
-        if resp.status_code != 200:
-            logger.error("Supabase GoTrue admin user update returned HTTP %d", resp.status_code)
-            raise RecoveryServiceUnavailableError("Failed to update password. Please try again.")
-
-        logger.info("password_reset_success mode=supabase user_id=%s", token_data.user_id)
-
-    except httpx.RequestError as exc:
-        logger.error("Network error communicating with Supabase Admin Auth during password update: %s", exc)
-        raise RecoveryServiceUnavailableError("Authentication service temporarily unavailable.")
+    # Fallback in local dev
+    with _test_users_lock:
+        user = _test_users.get(token_data.email)
+        if user:
+            user["password"] = new_password
+        logger.info("password_reset_success mode=test user_id=%s", token_data.user_id)

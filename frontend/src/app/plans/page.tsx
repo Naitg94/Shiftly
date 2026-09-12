@@ -74,7 +74,7 @@ export default function PlansPage() {
 
             {/* Quick Action CTA for Guests */}
             {!user && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 pt-1 sm:pt-0">
                 <Link
                   href="/login"
                   className="px-3.5 py-1.5 rounded-xl border border-slate-700 bg-slate-800 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition-colors"
@@ -105,7 +105,7 @@ export default function PlansPage() {
                   </span>
                 ) : (
                   <span>
-                    Guests can analyze ad-hoc communications up to 3,000 characters per analysis.
+                    Guests can analyze ad-hoc communications up to 3,000 characters (pasted text) or 1,500 characters (uploaded file) per analysis.
                   </span>
                 )}
               </p>
@@ -132,15 +132,18 @@ export default function PlansPage() {
         </div>
 
         {/* 3 Tier Plans Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {PLANS.map((plan) => {
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {PLANS.map((plan, planIdx) => {
             const isCurrent = user && plan.id === 'FREE';
             const isPlusOrPro = plan.id === 'PLUS' || plan.id === 'PRO';
+            const isLastOnTablet = planIdx === 2;
 
             return (
               <div
                 key={plan.id}
                 className={`relative rounded-2xl border p-6 sm:p-7 flex flex-col justify-between transition-all ${
+                  isLastOnTablet ? 'md:col-span-2 md:w-full md:max-w-[360px] md:mx-auto lg:max-w-none lg:col-span-1' : ''
+                } ${
                   isCurrent
                     ? 'border-blue-500/40 bg-slate-900 shadow-xl shadow-blue-500/5 ring-1 ring-blue-500/20'
                     : 'border-slate-800 bg-slate-900/50 hover:border-slate-700/80'

@@ -332,7 +332,7 @@ def test_mbox_multi_message_archive():
 
 def test_guest_whatsapp_zip_extracted_text_oversized_rejected_413():
     long_chat = (
-        "[24/05/2024, 10:00:00] Alice: " + "A" * 3100 + "\n"
+        "[24/05/2024, 10:00:00] Alice: " + "A" * 1600 + "\n"
     )
     zip_bytes = build_zip_archive({"_chat.txt": long_chat})
     
@@ -342,7 +342,7 @@ def test_guest_whatsapp_zip_extracted_text_oversized_rejected_413():
     )
     assert response.status_code == 413
     data = response.json()
-    assert "too large for guest mode" in data["detail"].lower()
+    assert "1,500" in data["detail"]
     assert "create a free account" in data["detail"].lower()
 
 
@@ -360,7 +360,7 @@ def test_authenticated_whatsapp_zip_oversized_succeeds():
     assert response.status_code != 413
     if response.status_code == 200:
         data = response.json()
-        assert len(data["keyPoints"]) <= 5
+        assert len(data["keyPoints"]) >= 1
 
 
 def test_guest_eml_oversized_rejected_413():
@@ -369,9 +369,9 @@ def test_guest_eml_oversized_rejected_413():
         "To: Bob <bob@example.com>\n"
         "Subject: Oversized Email\n"
         "\n"
-        + "This is a long email discussion sentence. " * 100
+        + "This is a long email discussion sentence. " * 50
     )
-    assert len(long_eml) > 3000
+    assert len(long_eml) > 1500
     
     response = guest_client.post(
         "/api/analyze/file",
@@ -379,7 +379,8 @@ def test_guest_eml_oversized_rejected_413():
     )
     assert response.status_code == 413
     data = response.json()
-    assert "too large for guest mode" in data["detail"].lower()
+    assert "1,500" in data["detail"]
+    assert "create a free account" in data["detail"].lower()
 
 
 def test_existing_inputs_regression():

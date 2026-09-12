@@ -238,19 +238,19 @@ async def analyze_file(
     # 4. Enforce extracted text character limit BEFORE calling Gemini
     extracted_chars = len(extracted.full_text)
     if current_user is None:
-        if extracted_chars > settings.GUEST_MAX_TEXT_CHAR_COUNT:
+        if extracted_chars > settings.GUEST_MAX_FILE_CHAR_COUNT:
             logger.warning(
                 "guest_file_analysis_rejected_oversized filename=%s chars=%d limit=%d",
                 file.filename,
                 extracted_chars,
-                settings.GUEST_MAX_TEXT_CHAR_COUNT,
+                settings.GUEST_MAX_FILE_CHAR_COUNT,
             )
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=(
-                    f"This document's extracted text is too large for guest mode ({extracted_chars:,} characters, "
-                    f"maximum {settings.GUEST_MAX_TEXT_CHAR_COUNT:,} characters). "
-                    f"Create a free account or sign in to analyze larger documents and save results to Project Memory."
+                    f"This file contains more than {settings.GUEST_MAX_FILE_CHAR_COUNT:,} characters of readable "
+                    f"communication ({extracted_chars:,} characters). "
+                    f"Create a free account to analyze larger files."
                 ),
             )
     else:

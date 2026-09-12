@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Sparkles, Database, LogOut, User as UserIcon, X, Check, Loader2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -52,6 +52,21 @@ export default function Navbar({ activeTab, onTabChange, onReset }: NavbarProps)
     setIsProfileOpen(true);
   };
 
+  // Lock body scroll while Profile modal is open
+  useEffect(() => {
+    if (!isProfileOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsProfileOpen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isProfileOpen]);
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = editedName.trim();
@@ -91,24 +106,24 @@ export default function Navbar({ activeTab, onTabChange, onReset }: NavbarProps)
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-800 bg-slate-950/80 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-3 sm:px-6">
         {/* Brand */}
         <div
           onClick={handleAnalyzeClick}
-          className="flex cursor-pointer items-center space-x-3 transition-opacity hover:opacity-90"
+          className="flex cursor-pointer items-center space-x-2 sm:space-x-3 transition-opacity hover:opacity-90 shrink-0"
         >
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white font-bold text-lg shadow-md shadow-blue-500/20">
+          <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl bg-blue-600 text-white font-bold text-base sm:text-lg shadow-md shadow-blue-500/20">
             S
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-lg font-bold tracking-tight text-white">Shiftly</span>
-              <span className="text-[10px] font-medium uppercase tracking-wider rounded bg-slate-800 px-1.5 py-0.5 text-slate-400">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="text-base sm:text-lg font-bold tracking-tight text-white">Shiftly</span>
+              <span className="hidden md:inline-block text-[10px] font-medium uppercase tracking-wider rounded bg-slate-800 px-1.5 py-0.5 text-slate-400">
                 Beta
               </span>
               <Link
                 href="/plans"
-                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-bold tracking-wider transition-all cursor-pointer ${
+                className={`hidden md:inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 rounded-full border text-[10px] font-bold tracking-wider transition-all cursor-pointer ${
                   user
                     ? 'border-blue-500/30 bg-blue-500/10 text-blue-400 hover:text-blue-300 hover:border-blue-500/50'
                     : 'border-slate-700 bg-slate-800 text-slate-300 hover:text-white hover:border-slate-600'
@@ -120,40 +135,47 @@ export default function Navbar({ activeTab, onTabChange, onReset }: NavbarProps)
                 <span>{user ? 'FREE' : 'GUEST'}</span>
               </Link>
             </div>
-            <p className="text-[11px] text-slate-400 leading-none">Find what matters.</p>
+            <p className="text-[11px] text-slate-400 leading-none hidden lg:block">Find what matters.</p>
           </div>
         </div>
 
         {/* Navigation Items & User Controls */}
-        <div className="flex items-center gap-3 sm:gap-4">
-          <nav className="flex items-center gap-2 sm:gap-3 text-sm">
+        <div className="flex items-center gap-1 sm:gap-3">
+          <nav className="flex items-center gap-1 sm:gap-2 text-sm">
             <button
               onClick={handleAnalyzeClick}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-all cursor-pointer ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-all cursor-pointer ${
                 activeTab === 'analyze'
                   ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20 shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-900 border border-transparent'
               }`}
+              title="Analyze Communication"
+              aria-label="Analyze Communication"
             >
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>Analyze</span>
+              <Sparkles className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">Analyze</span>
             </button>
 
             <button
               onClick={handleMemoryClick}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-all cursor-pointer ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-all cursor-pointer ${
                 activeTab === 'memory'
                   ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20 shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-900 border border-transparent'
               }`}
+              title="Project Memory"
+              aria-label="Project Memory"
             >
-              <Database className="h-3.5 w-3.5" />
-              <span>Project Memory</span>
+              <Database className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden md:inline">Project </span>
+              <span className="hidden sm:inline">Memory</span>
             </button>
 
             <Link
               href="/plans"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-900 border border-transparent transition-all cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl text-xs sm:text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-900 border border-transparent transition-all cursor-pointer"
+              title="Subscription & Plans"
+              aria-label="Subscription & Plans"
             >
               <span>Plans</span>
             </Link>
@@ -161,10 +183,10 @@ export default function Navbar({ activeTab, onTabChange, onReset }: NavbarProps)
 
           {/* User Identity or Guest Actions */}
           {user ? (
-            <div className="flex items-center gap-2 sm:gap-2.5 pl-2 sm:pl-3 border-l border-slate-800">
+            <div className="flex items-center gap-1 sm:gap-2 pl-1 sm:pl-2.5 border-l border-slate-800">
               <button
                 onClick={handleOpenProfile}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-xs text-slate-300 hover:text-white transition-colors cursor-pointer max-w-[160px]"
+                className="flex items-center gap-1.5 px-1.5 sm:px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-xs text-slate-300 hover:text-white transition-colors cursor-pointer max-w-[85px] sm:max-w-[160px]"
                 title="Account profile settings"
                 aria-label="Account profile settings"
               >
@@ -176,7 +198,7 @@ export default function Navbar({ activeTab, onTabChange, onReset }: NavbarProps)
 
               <button
                 onClick={handleSignOut}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-rose-400 text-xs transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1 px-1.5 sm:px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-rose-400 text-xs transition-colors cursor-pointer shrink-0"
                 title="Sign out"
                 aria-label="Sign out"
               >
@@ -185,16 +207,16 @@ export default function Navbar({ activeTab, onTabChange, onReset }: NavbarProps)
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-slate-800">
+            <div className="flex items-center gap-1 sm:gap-2 pl-1 sm:pl-2.5 border-l border-slate-800">
               <Link
                 href="/login"
-                className="px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-900 transition-colors cursor-pointer"
+                className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl text-xs sm:text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-900 transition-colors cursor-pointer whitespace-nowrap"
               >
                 Log In
               </Link>
               <Link
                 href="/signup"
-                className="px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-500/20 transition-all cursor-pointer"
+                className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl text-xs sm:text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-500/20 transition-all cursor-pointer whitespace-nowrap"
               >
                 Sign Up
               </Link>
@@ -205,9 +227,9 @@ export default function Navbar({ activeTab, onTabChange, onReset }: NavbarProps)
 
       {/* Account Profile Modal */}
       {isProfileOpen && user && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl p-5 sm:p-6 space-y-4 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150 overflow-y-auto">
+          <div className="w-full max-w-sm max-h-[90vh] flex flex-col my-auto overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl p-5 sm:p-6 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
               <div className="flex items-center gap-2">
                 <div className="h-7 w-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
                   <UserIcon className="h-4 w-4" />
@@ -223,7 +245,7 @@ export default function Navbar({ activeTab, onTabChange, onReset }: NavbarProps)
               </button>
             </div>
 
-            <form onSubmit={handleSaveProfile} className="space-y-3.5">
+            <form onSubmit={handleSaveProfile} className="flex-1 overflow-y-auto space-y-3.5 py-2 pr-1">
               <div className="space-y-1">
                 <label className="text-[11px] font-medium text-slate-400">
                   Email Address (Read-only)
@@ -256,7 +278,7 @@ export default function Navbar({ activeTab, onTabChange, onReset }: NavbarProps)
                 <p className="text-[11px] text-emerald-400">{nameSuccess}</p>
               )}
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800 shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsProfileOpen(false)}

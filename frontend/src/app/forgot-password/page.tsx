@@ -134,7 +134,7 @@ export default function ForgotPasswordPage() {
         </div>
 
         {/* Card */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 sm:p-8 shadow-2xl text-left space-y-5">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 sm:p-8 shadow-2xl text-left space-y-5">
           {/* MVP Recovery Notice Banner */}
           {step !== 'success' && (
             <div className="p-3.5 rounded-xl bg-blue-600/10 border border-blue-500/20 text-xs text-blue-300 flex items-start gap-2.5">

@@ -69,8 +69,12 @@ export default function ResultsDashboard({
   const [newProjectName, setNewProjectName] = useState("");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
 
-  // Close save modal on Escape key
+  // Close save modal on Escape key & lock body scroll
+  const isAnySaveModalOpen = Boolean(isSaveModalOpen || isGuestSaveModalOpen);
   useEffect(() => {
+    if (!isAnySaveModalOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (isSaveModalOpen) setIsSaveModalOpen(false);
@@ -78,8 +82,11 @@ export default function ResultsDashboard({
       }
     };
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isSaveModalOpen, isGuestSaveModalOpen]);
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isAnySaveModalOpen, isSaveModalOpen, isGuestSaveModalOpen]);
 
   const tabs: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
     { id: "keypoints", label: "Key Points", icon: <ListChecks className="h-4 w-4" /> },
@@ -328,16 +335,16 @@ export default function ResultsDashboard({
 
       {/* Save to Project Modal */}
       {isSaveModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150 overflow-y-auto">
+          <div className="w-full max-w-md max-h-[90vh] flex flex-col my-auto overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
               <div className="flex items-center gap-2">
                 <Bookmark className="h-5 w-5 text-blue-400" />
                 <h3 className="text-base font-bold text-white">Save to Project Memory</h3>
               </div>
               <button
                 onClick={() => setIsSaveModalOpen(false)}
-                className="text-slate-400 hover:text-white transition-colors"
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
                 aria-label="Close modal"
               >
                 <X className="h-4 w-4" />
@@ -352,7 +359,7 @@ export default function ResultsDashboard({
                 <p className="text-sm font-semibold text-white">{saveSuccess}</p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="flex-1 overflow-y-auto space-y-4 py-1 pr-1">
                 {saveError && (
                   <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
                     <AlertCircle className="h-3.5 w-3.5 shrink-0" />
@@ -376,7 +383,7 @@ export default function ResultsDashboard({
                       <button
                         type="button"
                         onClick={() => setShowNewProjectInput(true)}
-                        className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 font-medium"
+                        className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 font-medium cursor-pointer"
                       >
                         <FolderPlus className="h-3.5 w-3.5" />
                         <span>Create New Project</span>
@@ -400,7 +407,7 @@ export default function ResultsDashboard({
                         <button
                           type="button"
                           onClick={() => setShowNewProjectInput(true)}
-                          className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-blue-400 transition-colors"
+                          className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-blue-400 transition-colors cursor-pointer"
                         >
                           <Plus className="h-3 w-3" />
                           <span>+ Or create a new project</span>
@@ -426,7 +433,7 @@ export default function ResultsDashboard({
                           type="button"
                           disabled={isCreatingProject || !newProjectName.trim()}
                           onClick={handleCreateProjectInline}
-                          className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium disabled:opacity-50"
+                          className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium disabled:opacity-50 cursor-pointer"
                         >
                           {isCreatingProject ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
@@ -437,7 +444,7 @@ export default function ResultsDashboard({
                         <button
                           type="button"
                           onClick={() => setShowNewProjectInput(false)}
-                          className="text-xs text-slate-400 hover:text-white px-1"
+                          className="text-xs text-slate-400 hover:text-white px-1 cursor-pointer"
                         >
                           Cancel
                         </button>
@@ -446,11 +453,11 @@ export default function ResultsDashboard({
                   )}
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800 shrink-0">
                   <button
                     type="button"
                     onClick={() => setIsSaveModalOpen(false)}
-                    className="px-3.5 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                    className="px-3.5 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -458,7 +465,7 @@ export default function ResultsDashboard({
                     type="button"
                     disabled={isSaving || !selectedProjectId}
                     onClick={handleSaveToProject}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-all shadow-md shadow-blue-600/20 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 cursor-pointer"
                   >
                     {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     <span>Save Intelligence</span>
@@ -472,9 +479,9 @@ export default function ResultsDashboard({
 
       {/* Guest Save to Project Memory Conversion Modal */}
       {isGuestSaveModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl p-6 sm:p-7 space-y-5 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
+          <div className="w-full max-w-md max-h-[90vh] flex flex-col my-auto overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl p-6 sm:p-7 space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
               <div className="flex items-center gap-2">
                 <div className="h-8 w-8 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
                   <Bookmark className="h-4 w-4" />
@@ -490,7 +497,7 @@ export default function ResultsDashboard({
               </button>
             </div>
 
-            <div className="space-y-3 text-sm text-slate-300">
+            <div className="flex-1 overflow-y-auto space-y-3 py-2 pr-1 text-sm text-slate-300">
               <p className="leading-relaxed">
                 Create a free account or sign in to save this analysis to Project Memory.
               </p>
@@ -507,7 +514,7 @@ export default function ResultsDashboard({
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-3 border-t border-slate-800 shrink-0">
               <button
                 onClick={() => setIsGuestSaveModalOpen(false)}
                 className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"

@@ -16,6 +16,7 @@ from app.services.chunking_service import (
     split_into_chunks,
     merge_analysis_results,
     estimate_messages_count,
+    select_meaningful_key_points,
     select_top_key_points,
 )
 
@@ -38,7 +39,7 @@ RULES & CORE PRINCIPLES:
    - sender: The person who sent the message
    - messageRef: Reference tag, e.g. 'Message #4' or 'Line 12'
    - excerpt: An exact concise sentence/quote from the text that proves the extraction.
-6. QUALITY OVER QUANTITY: Prefer fewer high-value, actionable points over trivial chatter. In keyPoints, extract AT MOST the 5 most important high-level takeaways (decisions, commitments, major changes). If only 2 or 3 genuinely important points exist, return 2 or 3. Never exceed 5 key points.
+6. QUALITY OVER QUANTITY: In keyPoints, extract ALL genuinely important high-level takeaways (decisions, commitments, major milestones, blockers, scope changes, structural handoffs, process agreements). Do NOT arbitrarily limit to 5 points if more genuinely important takeaways exist, and do NOT pad with trivial items if only 2 or 3 exist. Strictly filter out greetings, pleasantries, filler, emotional reactions, repetitive confirmations, and trivial chatter.
 7. STRICT BOUNDARIES - DO NOT ADD:
    - Do NOT add risk scores or predictions.
    - Do NOT detect conflicts or sentiment.
@@ -324,8 +325,8 @@ def analyze_communication(
             if dt.source and dt.source.date and re.search(r"\b(20\d{2}|19\d{2})\b", dt.source.date):
                 dt.source.date = "—"
 
-    # Enforce deterministic cap on keyPoints (at most 5 items)
-    final_result.keyPoints = select_top_key_points(final_result.keyPoints, max_points=5)
+    # Retain all genuinely meaningful key points (filtering low-value fluff and deduplicating)
+    final_result.keyPoints = select_meaningful_key_points(final_result.keyPoints)
     final_result.stats.keyPointsCount = len(final_result.keyPoints)
 
     return final_result

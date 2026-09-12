@@ -159,10 +159,10 @@ export default function InputSection({
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl shadow-black/40 p-5 sm:p-7 space-y-5">
         {/* Tab & Controls Bar */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
-          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs w-full sm:w-auto">
             <button
               onClick={() => setActiveTab("paste")}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg font-medium transition-colors ${
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
                 activeTab === "paste"
                   ? "bg-slate-800 text-white shadow-sm"
                   : "text-slate-400 hover:text-slate-200"
@@ -173,7 +173,7 @@ export default function InputSection({
             </button>
             <button
               onClick={() => setActiveTab("upload")}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg font-medium transition-colors ${
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
                 activeTab === "upload"
                   ? "bg-slate-800 text-white shadow-sm"
                   : "text-slate-400 hover:text-slate-200"
@@ -188,11 +188,11 @@ export default function InputSection({
           </div>
 
           {/* Quick Actions */}
-          <div className="flex items-center gap-2 self-end sm:self-auto text-xs">
+          <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap text-xs pt-0.5 sm:pt-0">
             {activeTab === "paste" && (
               <button
                 onClick={handleLoadSample}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 font-medium text-blue-300 hover:bg-blue-500/20 transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2.5 sm:px-3 py-1.5 font-medium text-blue-300 hover:bg-blue-500/20 transition-colors cursor-pointer"
                 title="Load a realistic construction coordination thread"
               >
                 <FileText className="h-3.5 w-3.5" />
@@ -202,7 +202,7 @@ export default function InputSection({
             {((activeTab === "paste" && charCount > 0) || (activeTab === "upload" && selectedFile !== null)) && (
               <button
                 onClick={handleClear}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-1.5 font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-1.5 font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
                 title="Clear current input"
               >
                 <RotateCcw className="h-3.5 w-3.5" />

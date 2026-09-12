@@ -140,9 +140,9 @@ def test_guest_file_within_limit_succeeds():
 
 
 def test_guest_file_oversized_extracted_text_rejected_413():
-    """Guest file whose extracted text exceeds guest limit is rejected with 413 and never reaches Gemini."""
-    limit = settings.GUEST_MAX_TEXT_CHAR_COUNT
-    oversized_text = "D" * (limit + 500)
+    """Guest file whose extracted text exceeds GUEST_MAX_FILE_CHAR_COUNT (1,500) is rejected with 413."""
+    limit = settings.GUEST_MAX_FILE_CHAR_COUNT
+    oversized_text = "D" * (limit + 1)
 
     with patch("app.api.v1.endpoints.analyze.analyze_communication") as mock_gemini:
         res = guest_client.post(
@@ -151,8 +151,22 @@ def test_guest_file_oversized_extracted_text_rejected_413():
         )
         assert res.status_code == 413
         detail = res.json()["detail"]
-        assert "guest mode" in detail.lower()
+        assert "1,500" in detail
+        assert "create a free account" in detail.lower()
         mock_gemini.assert_not_called()
+
+
+def test_guest_file_within_limit_exact_1500_succeeds():
+    """Guest file whose extracted text is exactly at 1,500 characters succeeds."""
+    limit = settings.GUEST_MAX_FILE_CHAR_COUNT
+    exact_text = "D" * limit
+
+    with patch("app.api.v1.endpoints.analyze.analyze_communication", return_value=MOCK_RESULT):
+        res = guest_client.post(
+            "/api/analyze/file",
+            files={"file": ("exact_doc.txt", exact_text.encode("utf-8"), "text/plain")},
+        )
+        assert res.status_code == 200
 
 
 # =========================================================================

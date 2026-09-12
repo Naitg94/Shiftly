@@ -96,6 +96,6 @@ def get_plans_response(user: Optional[AuthenticatedUser]) -> Dict[str, Any]:
     return {
         "current_plan": current_tier.value,
         "is_authenticated": user is not None and bool(user.id),
-        "usage_status": "Full access during preview" if current_tier == PlanTier.FREE else "Guest access (up to 3,000 characters)",
+        "usage_status": "Full access during preview" if current_tier == PlanTier.FREE else "Guest access (up to 3,000 characters text / 1,500 characters file)",
         "plans": plans_list,
     }

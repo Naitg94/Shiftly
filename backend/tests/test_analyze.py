@@ -231,7 +231,11 @@ def test_gemini_extraction_pipeline():
 
 
 def test_key_points_cap_and_selection():
-    from app.services.chunking_service import select_top_key_points, merge_analysis_results
+    from app.services.chunking_service import (
+        select_meaningful_key_points,
+        select_top_key_points,
+        merge_analysis_results,
+    )
 
     src = SourceReference(
         id="src-1",
@@ -248,7 +252,7 @@ def test_key_points_cap_and_selection():
         KeyPointItem(id="kp-1", point="Approved Change Order #05 for structural beams.", category="Decision", source=src),
         KeyPointItem(id="kp-2", point="Deliver steel framing by Friday 4 PM.", category="Action", source=src),
     ]
-    res_2 = select_top_key_points(two_pts, max_points=5)
+    res_2 = select_meaningful_key_points(two_pts)
     assert len(res_2) == 2
     assert res_2[0].id == "kp-1"
     assert res_2[1].id == "kp-2"
@@ -262,10 +266,10 @@ def test_key_points_cap_and_selection():
         KeyPointItem(id="kp-4", point="Electrical conduit installation scheduled for East Wing.", category="Action", source=src),
         KeyPointItem(id="kp-5", point="Plumbing rough-in inspection passed with zero citations.", category="Update", source=src),
     ]
-    res_5 = select_top_key_points(five_pts, max_points=5)
+    res_5 = select_meaningful_key_points(five_pts)
     assert len(res_5) == 5
 
-    # C. 10+ important points -> maximum 5, prioritizing decisions, commitments, changes over banter
+    # C. Filtering: greetings, banter, and filler filtered out without arbitrary cap
     ten_pts = [
         KeyPointItem(id="kp-1", point="Good morning everyone, happy Monday.", category="Information", source=src),
         KeyPointItem(id="kp-2", point="Approved revised structural package for East Wing.", category="Decision", source=src),
@@ -280,10 +284,11 @@ def test_key_points_cap_and_selection():
         KeyPointItem(id="kp-11", point="Sounds good to me.", category="Information", source=src),
         KeyPointItem(id="kp-12", point="Hi there team.", category="Information", source=src),
     ]
-    res_10 = select_top_key_points(ten_pts, max_points=5)
-    assert len(res_10) == 5
+    res_filtered = select_meaningful_key_points(ten_pts)
+    # 6 genuinely meaningful points retained (no arbitrary cap to 5)
+    assert len(res_filtered) == 6
     # Confirm trivial greetings and banter were excluded
-    points_text = [kp.point for kp in res_10]
+    points_text = [kp.point for kp in res_filtered]
     assert not any("morning" in p.lower() for p in points_text)
     assert not any("lunch" in p.lower() for p in points_text)
     assert not any("thanks" in p.lower() for p in points_text)
@@ -291,46 +296,81 @@ def test_key_points_cap_and_selection():
     assert any("structural package" in p.lower() for p in points_text)
     assert any("change order #09" in p.lower() for p in points_text)
     # Confirm IDs are sequentially re-indexed
-    assert [kp.id for kp in res_10] == ["kp-1", "kp-2", "kp-3", "kp-4", "kp-5"]
-    # F. Retained key points still have valid source alignment
-    for kp in res_10:
+    assert [kp.id for kp in res_filtered] == ["kp-1", "kp-2", "kp-3", "kp-4", "kp-5", "kp-6"]
+    # Retained key points still have valid source alignment
+    for kp in res_filtered:
         assert kp.source is not None
         assert kp.source.excerpt == "Important proof quote from source"
 
-    # D. Duplicate points deduplicated before final cap
+    # D. 8 distinct important points -> all 8 retained (no arbitrary cap)
+    distinct_8 = [
+        "Approved structural drawings for foundation slab.",
+        "Finalized HVAC chiller placement with mechanical engineer.",
+        "Electrical permit approved by municipal building safety department.",
+        "Plumbing rough-in inspection passed with zero citations.",
+        "Roofing membrane installation scheduled for completion by Friday.",
+        "Facade glazing specifications confirmed at 24 mm laminated glass.",
+        "Fire damper testing coordinated with site superintendent.",
+        "Landscaping and drainage grading plan signed off by civil team.",
+    ]
+    eight_pts = [
+        KeyPointItem(id=f"kp-{i}", point=topic, category="Decision", source=src)
+        for i, topic in enumerate(distinct_8, start=1)
+    ]
+    res_8 = select_meaningful_key_points(eight_pts)
+    assert len(res_8) == 8
+
+    # E. 15 distinct important points -> all 15 retained (no arbitrary cap)
+    distinct_15 = distinct_8 + [
+        "Acoustic wall insulation verified at 55 dB rating.",
+        "Elevator shaft alignment certified by elevator contractor.",
+        "Emergency generator fuel tank delivery confirmed for Tuesday.",
+        "Security card reader hardware approved for all exterior portals.",
+        "Fiber optic telecommunications conduit pulled into server room.",
+        "Stormwater retention basin excavation completed and inspected.",
+        "Paving subcontractor contract executed for main parking area.",
+    ]
+    fifteen_pts = [
+        KeyPointItem(id=f"kp-{i}", point=topic, category="Action", source=src)
+        for i, topic in enumerate(distinct_15, start=1)
+    ]
+    res_15 = select_meaningful_key_points(fifteen_pts)
+    assert len(res_15) == 15
+
+    # F. Duplicate points deduplicated
     dup_pts = [
         KeyPointItem(id="kp-1", point="Approved Change Order #05 for structural beams.", category="Decision", source=src),
         KeyPointItem(id="kp-2", point="Approved Change Order #05 for structural beams.", category="Decision", source=src),
         KeyPointItem(id="kp-3", point="approved change order #05 for structural beams", category="Decision", source=src),
         KeyPointItem(id="kp-4", point="Deliver steel framing by Friday 4 PM.", category="Action", source=src),
     ]
-    res_dup = select_top_key_points(dup_pts, max_points=5)
+    res_dup = select_meaningful_key_points(dup_pts)
     assert len(res_dup) == 2
 
-    # E. Actions/decisions/dates are NOT accidentally truncated by key-point cap
+    # G. Actions/decisions/dates and key points preserved during merge without arbitrary truncation
     r_multi = ShiftlyAnalysisResult(
         id="r-multi",
         title="Large Test Analysis",
         analyzedAt="Now",
         stats=AnalysisStats(messagesAnalyzed=50, keyPointsCount=8, actionsCount=8, decisionsCount=7, importantDatesCount=6),
         summary="Summary of test",
-        keyPoints=ten_pts[:8],
+        keyPoints=eight_pts,
         actions=[
             ActionItem(id=f"act-{i}", action=f"Task #{i}", responsiblePerson=f"Person {i}", source=src)
             for i in range(1, 9)
         ],
         decisions=[
             DecisionItem(id=f"dec-{i}", decision=f"Decision #{i}", approvedBy=f"Lead {i}", source=src)
-            for i in range(1, 8)
+            for i in range(1, 7 + 1)
         ],
         importantDates=[
             ImportantDateItem(id=f"dt-{i}", title=f"Date #{i}", date=f"Oct {i}", significance=f"Milestone {i}", source=src)
-            for i in range(1, 7)
+            for i in range(1, 6 + 1)
         ],
     )
     merged_res = merge_analysis_results([r_multi])
-    assert len(merged_res.keyPoints) == 5
-    assert merged_res.stats.keyPointsCount == 5
+    assert len(merged_res.keyPoints) == 8
+    assert merged_res.stats.keyPointsCount == 8
     # Actions, decisions, dates must remain untruncated
     assert len(merged_res.actions) == 8
     assert merged_res.stats.actionsCount == 8
