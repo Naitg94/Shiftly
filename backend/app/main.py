@@ -13,7 +13,7 @@ from app.core.middleware import (
     request_id_ctx,
 )
 from app.core.rate_limiter import RateLimitExceededException
-from app.api.v1.endpoints import health, analyze, projects, recovery
+from app.api.v1.endpoints import health, analyze, projects, recovery, plans
 
 # Setup structured logging with correlation ID and secret redaction
 logging_handler = logging.StreamHandler()
@@ -117,6 +117,7 @@ app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(analyze.router, prefix="/api", tags=["analyze"])
 app.include_router(projects.router, prefix="/api", tags=["projects"])
 app.include_router(recovery.router, prefix="/api", tags=["recovery"])
+app.include_router(plans.router, prefix="/api", tags=["plans"])
 
 
 @app.get("/", summary="Root Endpoint")
@@ -130,8 +131,10 @@ def read_root():
             "ready": "/api/ready",
             "analyze": "/api/analyze",
             "projects": "/api/projects",
+            "plans": "/api/plans",
         },
     }
+
 
 
 if __name__ == "__main__":

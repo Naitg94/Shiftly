@@ -268,3 +268,33 @@ export async function resetRecoveryPassword(
   return res.json();
 }
 
+export interface PlansApiResponse {
+  current_plan: 'GUEST' | 'FREE';
+  is_authenticated: boolean;
+  usage_status: string;
+  plans: {
+    id: string;
+    name: string;
+    display_name: string;
+    status: string;
+    tagline: string;
+    description: string;
+    features: string[];
+    is_current: boolean;
+  }[];
+}
+
+export async function fetchPlans(): Promise<PlansApiResponse> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/plans`, {
+    headers: {
+      ...authHeaders,
+    },
+  });
+  if (!res.ok) {
+    return parseErrorResponse(res);
+  }
+  return res.json();
+}
+
+
