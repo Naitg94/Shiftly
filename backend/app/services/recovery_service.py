@@ -1,13 +1,13 @@
 """
 Shiftly MVP Password Recovery Service
 ======================================
-Provides a temporary MVP account recovery mechanism using Username (Display Name) + Email.
+Provides a temporary MVP account recovery mechanism using Username + Email.
 
 CRITICAL ACCOUNT-TAKEOVER & MVP LIMITATION:
 -------------------------------------------
 This is an intentional MVP mechanism for hackathon/preview purposes where email
 verification links are deferred. Account recovery relies strictly on matching the
-registered user_metadata.display_name and registered email address.
+registered user_metadata.username (or legacy display_name) and registered email address.
 DO NOT claim this is production-grade recovery or email-verified.
 This implementation must be revisited and upgraded before final production deployment.
 
@@ -92,12 +92,14 @@ _test_users: Dict[str, Dict[str, Any]] = {
     "alex@example.com": {
         "id": "00000000-0000-0000-0000-000000000001",
         "email": "alex@example.com",
+        "username": "Alex Morgan",
         "display_name": "Alex Morgan",
         "password": "InitialPassword123!",
     },
     "bob@example.com": {
         "id": "00000000-0000-0000-0000-000000000002",
         "email": "bob@example.com",
+        "username": "Bob Vance",
         "display_name": "Bob Vance",
         "password": "InitialPassword123!",
     },
@@ -105,15 +107,23 @@ _test_users: Dict[str, Dict[str, Any]] = {
 _test_users_lock = threading.Lock()
 
 
-def register_test_user(email: str, display_name: str, password: str = "InitialPassword123!", user_id: Optional[str] = None):
+def register_test_user(
+    email: str,
+    username: Optional[str] = None,
+    password: str = "InitialPassword123!",
+    user_id: Optional[str] = None,
+    display_name: Optional[str] = None,
+):
     """Registers or updates a test user in the test user registry (for test suite only)."""
+    resolved_username = (username if username is not None else (display_name or "")).strip()
     with _test_users_lock:
         norm_email = email.strip().lower()
         uid = user_id or f"test-user-{secrets.token_hex(4)}"
         _test_users[norm_email] = {
             "id": uid,
             "email": norm_email,
-            "display_name": display_name.strip(),
+            "username": resolved_username,
+            "display_name": resolved_username,
             "password": password,
         }
 
@@ -135,12 +145,14 @@ def reset_test_recovery_state():
         _test_users["alex@example.com"] = {
             "id": "00000000-0000-0000-0000-000000000001",
             "email": "alex@example.com",
+            "username": "Alex Morgan",
             "display_name": "Alex Morgan",
             "password": "InitialPassword123!",
         }
         _test_users["bob@example.com"] = {
             "id": "00000000-0000-0000-0000-000000000002",
             "email": "bob@example.com",
+            "username": "Bob Vance",
             "display_name": "Bob Vance",
             "password": "InitialPassword123!",
         }
@@ -205,9 +217,9 @@ def validate_and_consume_token(token: str) -> RecoveryTokenData:
 
 
 def validate_username_input(username: str) -> str:
-    """Validates display name / username input according to Shiftly rules."""
+    """Validates username input according to Shiftly rules."""
     if not username or not username.strip():
-        raise AccountMatchFailedError("Username/display name is required.")
+        raise AccountMatchFailedError("Username is required.")
     trimmed = username.strip()
     if len(trimmed) < 2 or len(trimmed) > 50:
         raise AccountMatchFailedError("Invalid username or email address.")
@@ -240,6 +252,8 @@ def _extract_display_candidates(raw_meta: Optional[dict], email: str) -> list[st
     """Extracts all valid display identity candidate strings from user metadata and email prefix."""
     meta = raw_meta or {}
     candidates = []
+    if meta.get("username"):
+        candidates.append(str(meta.get("username")))
     if meta.get("display_name"):
         candidates.append(str(meta.get("display_name")))
     if meta.get("name"):
@@ -248,8 +262,6 @@ def _extract_display_candidates(raw_meta: Optional[dict], email: str) -> list[st
         candidates.append(str(meta.get("full_name")))
     if meta.get("user_name"):
         candidates.append(str(meta.get("user_name")))
-    if meta.get("username"):
-        candidates.append(str(meta.get("username")))
     if email and "@" in email:
         candidates.append(email.split("@")[0])
     return candidates
@@ -295,7 +307,7 @@ def get_db_connection():
 
 async def verify_account_for_recovery(username: str, email: str) -> str:
     """
-    Verifies that the supplied username (display name) and email address correspond
+    Verifies that the supplied username and email address correspond
     to the same Shiftly account. Returns a single-use recovery token if matched.
     Raises AccountMatchFailedError on mismatch, never differentiating whether the email exists.
     """
@@ -315,9 +327,9 @@ async def verify_account_for_recovery(username: str, email: str) -> str:
                 logger.warning("recovery_verify_failed reason=user_not_found")
                 raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
 
-            candidates = [user.get("display_name"), user.get("name"), clean_email.split("@")[0]]
+            candidates = [user.get("username"), user.get("display_name"), user.get("name"), clean_email.split("@")[0]]
             if not _check_name_match(clean_username, candidates):
-                logger.warning("recovery_verify_failed reason=display_name_mismatch")
+                logger.warning("recovery_verify_failed reason=username_mismatch")
                 raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
 
             logger.info("recovery_verify_success mode=test user_id=%s", user["id"])
@@ -341,7 +353,7 @@ async def verify_account_for_recovery(username: str, email: str) -> str:
             user_id, u_email, raw_meta = row
             candidates = _extract_display_candidates(raw_meta, u_email or clean_email)
             if not _check_name_match(clean_username, candidates):
-                logger.warning("recovery_verify_failed reason=display_name_mismatch")
+                logger.warning("recovery_verify_failed reason=username_mismatch")
                 raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
 
             logger.info("recovery_verify_success mode=postgres user_id=%s", user_id)
@@ -385,7 +397,7 @@ async def verify_account_for_recovery(username: str, email: str) -> str:
             metadata = matched_user.get("user_metadata", {}) or {}
             candidates = _extract_display_candidates(metadata, clean_email)
             if not _check_name_match(clean_username, candidates):
-                logger.warning("recovery_verify_failed reason=display_name_mismatch")
+                logger.warning("recovery_verify_failed reason=username_mismatch")
                 raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
 
             user_id = matched_user.get("id")
@@ -411,9 +423,9 @@ async def verify_account_for_recovery(username: str, email: str) -> str:
             logger.warning("recovery_verify_failed reason=user_not_found")
             raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
 
-        candidates = [user.get("display_name"), user.get("name"), clean_email.split("@")[0]]
+        candidates = [user.get("username"), user.get("display_name"), user.get("name"), clean_email.split("@")[0]]
         if not _check_name_match(clean_username, candidates):
-            logger.warning("recovery_verify_failed reason=display_name_mismatch")
+            logger.warning("recovery_verify_failed reason=username_mismatch")
             raise AccountMatchFailedError("Invalid username or email address. For this MVP, account recovery requires matching username and email.")
 
         logger.info("recovery_verify_success mode=test user_id=%s", user["id"])

@@ -1,8 +1,39 @@
 @import "tailwindcss";
 
+/* =========================================================================
+   SHIFTLY DESIGN TOKENS & COLOR SYSTEM
+   ========================================================================= */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Default Foundation: Light Mode (SaaS Production Baseline) */
+  --page-bg: #f8fafc;
+  --surface-primary: #ffffff;
+  --surface-secondary: #f1f5f9;
+  --surface-secondary-hover: #e2e8f0;
+  --surface-elevated: #ffffff;
+  --surface-input: #ffffff;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-dim: #94a3b8;
+
+  --border-strong: #cbd5e1;
+  --border-subtle: #e2e8f0;
+
+  /* Default Accent: Blue (Light) */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-active: #1e40af;
+  --accent-soft: #eff6ff;
+  --accent-soft-hover: #dbeafe;
+  --accent-border: #93c5fd;
+  --accent-text: #1d4ed8;
+  --accent-ring: rgba(37, 99, 235, 0.25);
+  --accent-contrast: #ffffff;
+
+  --background: var(--page-bg);
+  --foreground: var(--text-primary);
 }
 
 @theme inline {
@@ -10,13 +41,6 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 html {
@@ -27,7 +51,639 @@ html {
 body {
   min-height: 100%;
   overflow-x: clip;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--page-bg);
+  color: var(--text-primary);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* =========================================================================
+   1. FOUNDATION THEMES: LIGHT & DARK TOKENS
+   ========================================================================= */
+
+[data-theme="light"] {
+  --page-bg: #f8fafc;
+  --surface-primary: #ffffff;
+  --surface-secondary: #f1f5f9;
+  --surface-secondary-hover: #e2e8f0;
+  --surface-elevated: #ffffff;
+  --surface-input: #ffffff;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-dim: #94a3b8;
+
+  --border-strong: #cbd5e1;
+  --border-subtle: #e2e8f0;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --page-bg: #020617;
+  --surface-primary: #0f172a;
+  --surface-secondary: #111827;
+  --surface-secondary-hover: #1e293b;
+  --surface-elevated: #172033;
+  --surface-input: #020617;
+
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+
+  --border-strong: #1e293b;
+  --border-subtle: rgba(30, 41, 59, 0.7);
+  color-scheme: dark;
+}
+
+[data-theme="dark"] body {
+  background-color: #020617 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme="light"] body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* =========================================================================
+   2. CURATED ACCENT PALETTES (LIGHT & DARK TOKENS)
+   ========================================================================= */
+
+/* 1. BLUE (Default) */
+[data-accent="blue"] {
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-active: #1e40af;
+  --accent-soft: #eff6ff;
+  --accent-soft-hover: #dbeafe;
+  --accent-border: #93c5fd;
+  --accent-text: #1d4ed8;
+  --accent-ring: rgba(37, 99, 235, 0.25);
+  --accent-contrast: #ffffff;
+}
+[data-theme="dark"][data-accent="blue"],
+[data-theme="dark"] [data-accent="blue"] {
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-active: #1d4ed8;
+  --accent-soft: rgba(59, 130, 246, 0.15);
+  --accent-soft-hover: rgba(59, 130, 246, 0.25);
+  --accent-border: rgba(147, 197, 253, 0.35);
+  --accent-text: #60a5fa;
+  --accent-ring: rgba(59, 130, 246, 0.35);
+  --accent-contrast: #ffffff;
+}
+
+/* 2. CYAN */
+[data-accent="cyan"] {
+  --accent: #0891b2;
+  --accent-hover: #0e7490;
+  --accent-active: #155e75;
+  --accent-soft: #ecfeff;
+  --accent-soft-hover: #cffafe;
+  --accent-border: #67e8f9;
+  --accent-text: #0e7490;
+  --accent-ring: rgba(8, 145, 178, 0.25);
+  --accent-contrast: #ffffff;
+}
+[data-theme="dark"][data-accent="cyan"],
+[data-theme="dark"] [data-accent="cyan"] {
+  --accent: #06b6d4;
+  --accent-hover: #0891b2;
+  --accent-active: #0e7490;
+  --accent-soft: rgba(6, 182, 212, 0.15);
+  --accent-soft-hover: rgba(6, 182, 212, 0.25);
+  --accent-border: rgba(103, 232, 249, 0.35);
+  --accent-text: #22d3ee;
+  --accent-ring: rgba(6, 182, 212, 0.35);
+  --accent-contrast: #ffffff;
+}
+
+/* 3. VIOLET */
+[data-accent="violet"] {
+  --accent: #7c3aed;
+  --accent-hover: #6d28d9;
+  --accent-active: #5b21b6;
+  --accent-soft: #f5f3ff;
+  --accent-soft-hover: #ede9fe;
+  --accent-border: #c4b5fd;
+  --accent-text: #6d28d9;
+  --accent-ring: rgba(124, 58, 237, 0.25);
+  --accent-contrast: #ffffff;
+}
+[data-theme="dark"][data-accent="violet"],
+[data-theme="dark"] [data-accent="violet"] {
+  --accent: #8b5cf6;
+  --accent-hover: #7c3aed;
+  --accent-active: #6d28d9;
+  --accent-soft: rgba(139, 92, 246, 0.15);
+  --accent-soft-hover: rgba(139, 92, 246, 0.25);
+  --accent-border: rgba(196, 181, 253, 0.35);
+  --accent-text: #a78bfa;
+  --accent-ring: rgba(139, 92, 246, 0.35);
+  --accent-contrast: #ffffff;
+}
+
+/* 4. PURPLE */
+[data-accent="purple"] {
+  --accent: #9333ea;
+  --accent-hover: #7e22ce;
+  --accent-active: #6b21a8;
+  --accent-soft: #faf5ff;
+  --accent-soft-hover: #f3e8ff;
+  --accent-border: #d8b4fe;
+  --accent-text: #7e22ce;
+  --accent-ring: rgba(147, 51, 234, 0.25);
+  --accent-contrast: #ffffff;
+}
+[data-theme="dark"][data-accent="purple"],
+[data-theme="dark"] [data-accent="purple"] {
+  --accent: #a855f7;
+  --accent-hover: #9333ea;
+  --accent-active: #7e22ce;
+  --accent-soft: rgba(168, 85, 247, 0.15);
+  --accent-soft-hover: rgba(168, 85, 247, 0.25);
+  --accent-border: rgba(216, 180, 254, 0.35);
+  --accent-text: #c084fc;
+  --accent-ring: rgba(168, 85, 247, 0.35);
+  --accent-contrast: #ffffff;
+}
+
+/* 5. EMERALD */
+[data-accent="emerald"] {
+  --accent: #059669;
+  --accent-hover: #047857;
+  --accent-active: #065f46;
+  --accent-soft: #ecfdf5;
+  --accent-soft-hover: #d1fae5;
+  --accent-border: #6ee7b7;
+  --accent-text: #047857;
+  --accent-ring: rgba(5, 150, 105, 0.25);
+  --accent-contrast: #ffffff;
+}
+[data-theme="dark"][data-accent="emerald"],
+[data-theme="dark"] [data-accent="emerald"] {
+  --accent: #10b981;
+  --accent-hover: #059669;
+  --accent-active: #047857;
+  --accent-soft: rgba(16, 185, 129, 0.15);
+  --accent-soft-hover: rgba(16, 185, 129, 0.25);
+  --accent-border: rgba(110, 231, 183, 0.35);
+  --accent-text: #34d399;
+  --accent-ring: rgba(16, 185, 129, 0.35);
+  --accent-contrast: #ffffff;
+}
+
+/* 6. TEAL */
+[data-accent="teal"] {
+  --accent: #0d9488;
+  --accent-hover: #0f766e;
+  --accent-active: #115e59;
+  --accent-soft: #f0fdfa;
+  --accent-soft-hover: #ccfbf1;
+  --accent-border: #5eead4;
+  --accent-text: #0f766e;
+  --accent-ring: rgba(13, 148, 136, 0.25);
+  --accent-contrast: #ffffff;
+}
+[data-theme="dark"][data-accent="teal"],
+[data-theme="dark"] [data-accent="teal"] {
+  --accent: #14b8a6;
+  --accent-hover: #0d9488;
+  --accent-active: #0f766e;
+  --accent-soft: rgba(20, 184, 166, 0.15);
+  --accent-soft-hover: rgba(20, 184, 166, 0.25);
+  --accent-border: rgba(94, 234, 212, 0.35);
+  --accent-text: #2dd4bf;
+  --accent-ring: rgba(20, 184, 166, 0.35);
+  --accent-contrast: #ffffff;
+}
+
+/* 7. AMBER */
+[data-accent="amber"] {
+  --accent: #d97706;
+  --accent-hover: #b45309;
+  --accent-active: #92400e;
+  --accent-soft: #fffbeb;
+  --accent-soft-hover: #fef3c7;
+  --accent-border: #fcd34d;
+  --accent-text: #b45309;
+  --accent-ring: rgba(217, 119, 6, 0.25);
+  --accent-contrast: #ffffff;
+}
+[data-theme="dark"][data-accent="amber"],
+[data-theme="dark"] [data-accent="amber"] {
+  --accent: #f59e0b;
+  --accent-hover: #d97706;
+  --accent-active: #b45309;
+  --accent-soft: rgba(245, 158, 11, 0.15);
+  --accent-soft-hover: rgba(245, 158, 11, 0.25);
+  --accent-border: rgba(252, 211, 77, 0.35);
+  --accent-text: #fbbf24;
+  --accent-ring: rgba(245, 158, 11, 0.35);
+  --accent-contrast: #0f172a;
+}
+
+/* 8. ROSE */
+[data-accent="rose"] {
+  --accent: #e11d48;
+  --accent-hover: #be123c;
+  --accent-active: #9f1239;
+  --accent-soft: #fff1f2;
+  --accent-soft-hover: #ffe4e6;
+  --accent-border: #fda4af;
+  --accent-text: #be123c;
+  --accent-ring: rgba(225, 29, 72, 0.25);
+  --accent-contrast: #ffffff;
+}
+[data-theme="dark"][data-accent="rose"],
+[data-theme="dark"] [data-accent="rose"] {
+  --accent: #f43f5e;
+  --accent-hover: #e11d48;
+  --accent-active: #be123c;
+  --accent-soft: rgba(244, 63, 94, 0.15);
+  --accent-soft-hover: rgba(244, 63, 94, 0.25);
+  --accent-border: rgba(253, 164, 175, 0.35);
+  --accent-text: #fb7185;
+  --accent-ring: rgba(244, 63, 94, 0.35);
+  --accent-contrast: #ffffff;
+}
+
+/* Backward compatibility for "green" -> maps to emerald */
+[data-accent="green"] {
+  --accent: #059669;
+  --accent-hover: #047857;
+  --accent-active: #065f46;
+  --accent-soft: #ecfdf5;
+  --accent-soft-hover: #d1fae5;
+  --accent-border: #6ee7b7;
+  --accent-text: #047857;
+  --accent-ring: rgba(5, 150, 105, 0.25);
+  --accent-contrast: #ffffff;
+}
+[data-theme="dark"][data-accent="green"],
+[data-theme="dark"] [data-accent="green"] {
+  --accent: #10b981;
+  --accent-hover: #059669;
+  --accent-active: #047857;
+  --accent-soft: rgba(16, 185, 129, 0.15);
+  --accent-soft-hover: rgba(16, 185, 129, 0.25);
+  --accent-border: rgba(110, 231, 183, 0.35);
+  --accent-text: #34d399;
+  --accent-ring: rgba(16, 185, 129, 0.35);
+  --accent-contrast: #ffffff;
+}
+
+/* =========================================================================
+   3. UNIVERSAL ACCENT UTILITY MAPPINGS
+   Every interactive component consumes these tokens automatically.
+   ========================================================================= */
+
+.bg-blue-600 {
+  background-color: var(--accent) !important;
+  color: var(--accent-contrast) !important;
+}
+
+.hover\:bg-blue-500:hover {
+  background-color: var(--accent-hover) !important;
+}
+
+.active\:bg-blue-700:active {
+  background-color: var(--accent-active) !important;
+}
+
+.text-blue-400,
+.text-blue-500,
+.text-blue-300 {
+  color: var(--accent-text) !important;
+}
+
+.hover\:text-blue-300:hover {
+  color: var(--accent-hover) !important;
+}
+
+.border-blue-500,
+.border-blue-500\/20,
+.border-blue-500\/30,
+.border-blue-500\/40,
+.border-blue-500\/50 {
+  border-color: var(--accent-border) !important;
+}
+
+.bg-blue-500\/10,
+.bg-blue-600\/10,
+.bg-blue-600\/20,
+.bg-blue-600\/30 {
+  background-color: var(--accent-soft) !important;
+}
+
+.hover\:bg-blue-500\/20:hover {
+  background-color: var(--accent-soft-hover) !important;
+}
+
+.focus\:border-blue-500:focus {
+  border-color: var(--accent) !important;
+}
+
+.focus\:ring-blue-500:focus,
+.focus\:ring-1:focus {
+  --tw-ring-color: var(--accent-ring) !important;
+  box-shadow: 0 0 0 2px var(--accent-ring) !important;
+}
+
+.shadow-blue-500\/10,
+.shadow-blue-500\/20,
+.shadow-blue-600\/20,
+.shadow-blue-600\/25 {
+  --tw-shadow-color: var(--accent-ring) !important;
+}
+
+/* =========================================================================
+   4. LIGHT MODE SURFACE & LAYER NORMALIZATION
+   Page (#F8FAFC) -> Cards (#FFFFFF) -> Secondary (#F1F5F9) -> Accent
+   ========================================================================= */
+
+/* Top-level page container */
+[data-theme="light"] .min-h-screen.bg-slate-950,
+[data-theme="light"] .bg-slate-950.min-h-screen {
+  background-color: #f8fafc !important;
+}
+
+/* Primary Cards (#FFFFFF) */
+[data-theme="light"] .bg-slate-900,
+[data-theme="light"] .bg-slate-900\/90,
+[data-theme="light"] .bg-slate-900\/80,
+[data-theme="light"] .bg-slate-900\/60,
+[data-theme="light"] .bg-slate-900\/50,
+[data-theme="light"] .bg-slate-900\/40,
+[data-theme="light"] .bg-slate-900\/30 {
+  background-color: #ffffff !important;
+}
+
+/* Form Inputs & Textareas (#FFFFFF with #CBD5E1 border) */
+[data-theme="light"] textarea.bg-slate-950,
+[data-theme="light"] input.bg-slate-950,
+[data-theme="light"] textarea,
+[data-theme="light"] input[type="text"],
+[data-theme="light"] input[type="email"],
+[data-theme="light"] input[type="password"] {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] textarea::placeholder,
+[data-theme="light"] input::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Secondary Surfaces (#F1F5F9) */
+[data-theme="light"] .bg-slate-800,
+[data-theme="light"] .bg-slate-800\/90,
+[data-theme="light"] .bg-slate-800\/80,
+[data-theme="light"] .bg-slate-800\/60,
+[data-theme="light"] .bg-slate-800\/40,
+[data-theme="light"] .bg-slate-950,
+[data-theme="light"] .bg-slate-950\/60,
+[data-theme="light"] .bg-slate-950\/50,
+[data-theme="light"] .bg-slate-950\/40 {
+  background-color: #f1f5f9 !important;
+}
+
+/* Navbar Light Mode */
+[data-theme="light"] header.bg-slate-950\/80,
+[data-theme="light"] header {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Settings Modal Header & Elevated Surfaces Light Mode */
+[data-theme="light"] .bg-slate-950\/80:not(.fixed) {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Strong Borders (#CBD5E1) */
+[data-theme="light"] .border-slate-800,
+[data-theme="light"] .border-slate-800\/90,
+[data-theme="light"] .border-slate-800\/80,
+[data-theme="light"] .border-slate-800\/60,
+[data-theme="light"] .border-slate-800\/40 {
+  border-color: #cbd5e1 !important;
+}
+
+/* Subtle Borders (#E2E8F0) */
+[data-theme="light"] .border-slate-700,
+[data-theme="light"] .border-slate-700\/90,
+[data-theme="light"] .border-slate-700\/80,
+[data-theme="light"] .border-slate-700\/60,
+[data-theme="light"] .border-slate-700\/50,
+[data-theme="light"] .border-slate-700\/40,
+[data-theme="light"] .border-slate-900 {
+  border-color: #e2e8f0 !important;
+}
+
+/* Text Hierarchy */
+[data-theme="light"] .text-white {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .text-slate-100,
+[data-theme="light"] .text-slate-200,
+[data-theme="light"] .text-slate-300 {
+  color: #334155 !important;
+}
+
+[data-theme="light"] .text-slate-400 {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .text-slate-500 {
+  color: #64748b !important;
+}
+
+/* Hover States in Light Mode */
+[data-theme="light"] .hover\:bg-slate-800:hover {
+  background-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] .hover\:bg-slate-900:hover {
+  background-color: #f1f5f9 !important;
+}
+
+[data-theme="light"] .hover\:text-white:hover {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .hover\:text-slate-200:hover,
+[data-theme="light"] .hover\:text-slate-300:hover {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .hover\:border-slate-700:hover {
+  border-color: #94a3b8 !important;
+}
+
+/* Light mode overlay adjustment */
+[data-theme="light"] .bg-black\/60,
+[data-theme="light"] .bg-black\/75,
+[data-theme="light"] .bg-slate-950\/80.fixed {
+  background-color: rgba(15, 23, 42, 0.45) !important;
+}
+
+/* Subtle, polished shadows in Light Mode */
+[data-theme="light"] .shadow-2xl,
+[data-theme="light"] .shadow-xl {
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04) !important;
+}
+
+[data-theme="light"] .shadow-lg,
+[data-theme="light"] .shadow-md {
+  box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.04) !important;
+}
+
+[data-theme="light"] .shadow-sm {
+  box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.05) !important;
+}
+
+/* =========================================================================
+   5. STRICT SEMANTIC STATUS COLORS
+   Status indicators remain isolated from the user's chosen accent color.
+   ========================================================================= */
+
+/* Success (Emerald / Green) */
+.text-emerald-300,
+.text-emerald-400 {
+  color: #10b981 !important;
+}
+[data-theme="light"] .text-emerald-300,
+[data-theme="light"] .text-emerald-400 {
+  color: #047857 !important;
+}
+.bg-emerald-500\/10,
+.bg-emerald-600\/10 {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+}
+[data-theme="light"] .bg-emerald-500\/10,
+[data-theme="light"] .bg-emerald-600\/10 {
+  background-color: #ecfdf5 !important;
+}
+.border-emerald-500\/20,
+.border-emerald-500\/30 {
+  border-color: rgba(110, 231, 183, 0.35) !important;
+}
+[data-theme="light"] .border-emerald-500\/20,
+[data-theme="light"] .border-emerald-500\/30 {
+  border-color: #6ee7b7 !important;
+}
+
+/* Warning (Amber) */
+.text-amber-300,
+.text-amber-400 {
+  color: #fbbf24 !important;
+}
+[data-theme="light"] .text-amber-300,
+[data-theme="light"] .text-amber-400 {
+  color: #b45309 !important;
+}
+.bg-amber-500\/10 {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+}
+[data-theme="light"] .bg-amber-500\/10 {
+  background-color: #fffbeb !important;
+}
+.border-amber-500\/20,
+.border-amber-500\/30 {
+  border-color: rgba(252, 211, 77, 0.35) !important;
+}
+[data-theme="light"] .border-amber-500\/20,
+[data-theme="light"] .border-amber-500\/30 {
+  border-color: #fcd34d !important;
+}
+
+/* Error (Red / Rose) */
+.text-rose-300,
+.text-rose-400,
+.text-red-400 {
+  color: #fb7185 !important;
+}
+[data-theme="light"] .text-rose-300,
+[data-theme="light"] .text-rose-400,
+[data-theme="light"] .text-red-400 {
+  color: #be123c !important;
+}
+.bg-rose-500\/10,
+.bg-rose-950\/25,
+.bg-red-500\/10 {
+  background-color: rgba(244, 63, 94, 0.15) !important;
+}
+[data-theme="light"] .bg-rose-500\/10,
+[data-theme="light"] .bg-rose-950\/25,
+[data-theme="light"] .bg-red-500\/10 {
+  background-color: #fff1f2 !important;
+}
+.border-rose-500\/20,
+.border-rose-500\/30,
+.border-red-500\/20 {
+  border-color: rgba(253, 164, 175, 0.35) !important;
+}
+[data-theme="light"] .border-rose-500\/20,
+[data-theme="light"] .border-rose-500\/30,
+[data-theme="light"] .border-red-500\/20 {
+  border-color: #fda4af !important;
+}
+
+/* =========================================================================
+   6. TYPOGRAPHY FONTS
+   ========================================================================= */
+
+[data-font="default"] body {
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+}
+
+[data-font="mono"] body {
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+}
+
+[data-font="system"] body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif !important;
+}
+
+/* =========================================================================
+   7. TEXT SIZE
+   ========================================================================= */
+
+[data-text-size="small"] {
+  font-size: 14px;
+}
+
+[data-text-size="default"] {
+  font-size: 16px;
+}
+
+[data-text-size="large"] {
+  font-size: 17.5px;
+}
+
+/* =========================================================================
+   8. ANIMATIONS & REDUCED MOTION
+   ========================================================================= */
+
+[data-animations="false"] *,
+[data-animations="false"] *::before,
+[data-animations="false"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+[data-reduce-motion="true"] *,
+[data-reduce-motion="true"] *::before,
+[data-reduce-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
 }

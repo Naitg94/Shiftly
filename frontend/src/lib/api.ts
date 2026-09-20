@@ -269,7 +269,7 @@ export async function resetRecoveryPassword(
 }
 
 export interface PlansApiResponse {
-  current_plan: 'GUEST' | 'FREE';
+  current_plan: 'GUEST' | 'FREE' | 'PLUS' | 'PRO';
   is_authenticated: boolean;
   usage_status: string;
   plans: {
@@ -296,5 +296,68 @@ export async function fetchPlans(): Promise<PlansApiResponse> {
   }
   return res.json();
 }
+
+export interface AccountSummaryResponse {
+  plan: {
+    id: string;
+    name: string;
+    display_name: string;
+    status: string;
+    description: string;
+  };
+  usage: {
+    analyses_count: number;
+    analyses_limit: number | null;
+    projects_count: number;
+    projects_limit: number | null;
+    characters_processed: number;
+    characters_limit: number;
+    supported_inputs: { name: string; supported: boolean }[];
+  };
+  storage: {
+    used_bytes: number;
+    limit_bytes: number;
+    projects_count: number;
+    analyses_count: number;
+    key_points_count: number;
+    action_items_count: number;
+    decisions_count: number;
+    important_dates_count: number;
+    explanation: {
+      stored: string[];
+      not_stored: string;
+    };
+  };
+}
+
+export async function getAccountSummary(token?: string): Promise<AccountSummaryResponse> {
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/account/summary`, {
+    headers: {
+      ...authHeaders,
+    },
+  });
+  if (!res.ok) {
+    return parseErrorResponse(res);
+  }
+  return res.json();
+}
+
+export async function deleteAccount(password: string, token?: string): Promise<{ status: string; message: string }> {
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/account`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders,
+    },
+    body: JSON.stringify({ password }),
+  });
+  if (!res.ok) {
+    return parseErrorResponse(res);
+  }
+  return res.json();
+}
+
 
 

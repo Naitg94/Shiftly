@@ -21,7 +21,9 @@ from app.services.file_processing_service import (
 
 import os
 import pytest
+from unittest.mock import patch
 from app.core.rate_limiter import rate_limiter
+from app.core.config import settings
 
 os.environ["TEST_USE_SQLITE"] = "true"
 
@@ -32,7 +34,8 @@ guest_client = TestClient(app)
 @pytest.fixture(autouse=True)
 def reset_limiter():
     rate_limiter.reset()
-    yield
+    with patch.object(settings, "PRIVATE_PRO_USER_IDS_RAW", "00000000-0000-0000-0000-000000000001"):
+        yield
     rate_limiter.reset()
 
 

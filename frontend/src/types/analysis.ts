@@ -1,4 +1,4 @@
-export interface SourceReference {
+﻿export interface SourceReference {
   id: string;
   sourceType: "Chat Export" | "Email Thread" | "Meeting Transcript" | "Document";
   sourceName: string;

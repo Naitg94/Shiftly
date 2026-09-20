@@ -4,7 +4,7 @@ import os
 import sqlite3
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import httpx
 from app.core.config import settings
 from app.db.models import Project, StoredAnalysisSummary, SearchResultItem
@@ -54,11 +54,17 @@ class DatabaseConnectionError(DatabaseOperationError):
     pass
 
 
-def _init_local_db():
+def _init_local_db(clear: bool = False):
     """Initializes the local SQLite database schema for isolated automated tests."""
     conn = sqlite3.connect(LOCAL_DB_PATH)
-    conn.execute("PRAGMA foreign_keys = ON")
     cursor = conn.cursor()
+
+    if clear:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        for tbl in ["important_dates", "decisions", "action_items", "key_points", "analyses", "projects"]:
+            cursor.execute(f"DROP TABLE IF EXISTS {tbl}")
+
+    conn.execute("PRAGMA foreign_keys = ON")
 
     cursor.executescript("""
     CREATE TABLE IF NOT EXISTS projects (
@@ -975,7 +981,7 @@ class ProjectMemoryRepository:
                                 analysis_id=r["analyses"]["id"],
                                 analysis_title=r["analyses"]["title"],
                                 item_type="Date",
-                                content=f"{r['label']} ({r['date']}) — {r['description']}",
+                                content=f"{r['label']} ({r['date']}) ” {r['description']}",
                                 source_reference=src,
                                 created_at=r["created_at"],
                             )
@@ -1082,7 +1088,8 @@ class ProjectMemoryRepository:
                         analysis_id=r[0],
                         analysis_title=r[1],
                         item_type="Date",
-                        content=f"{r[2]} ({r[3]}) — {r[4]}",
+                        content=f"{r[2]} ({r[3]})" if r[3] else r[2],
+                        details=r[4],
                         source_reference=SourceReference.model_validate_json(r[5]),
                         created_at=r[6],
                     )
@@ -1107,6 +1114,242 @@ class ProjectMemoryRepository:
                 )
 
             return results
+        finally:
+            conn.close()
+
+    def get_user_storage_stats(self, user_id: str, user_token: Optional[str] = None, storage_limit_bytes: Optional[int] = None) -> Dict[str, Any]:
+        """Calculates real storage and usage statistics for an authenticated user."""
+        self._ensure_configured()
+
+        if not self._active_sqlite_mode:
+            url = f"{self.supabase_url}/rest/v1/projects?user_id=eq.{user_id}&select=id,analyses(id,summary,title,key_points(id,content),action_items(id,content),decisions(id,content),important_dates(id,label,description))"
+            try:
+                res = httpx.get(url, headers=self._get_supabase_headers(user_token), timeout=10.0)
+                if res.status_code == 200:
+                    data = res.json()
+                    projects_count = len(data)
+                    analyses_count = 0
+                    key_points_count = 0
+                    action_items_count = 0
+                    decisions_count = 0
+                    important_dates_count = 0
+                    text_bytes = 0
+
+                    for proj in data:
+                        analyses = proj.get("analyses", [])
+                        analyses_count += len(analyses)
+                        for a in analyses:
+                            text_bytes += len(a.get("summary", "") or "") + len(a.get("title", "") or "")
+                            kps = a.get("key_points", [])
+                            key_points_count += len(kps)
+                            for kp in kps:
+                                text_bytes += len(kp.get("content", "") or "")
+                            acts = a.get("action_items", [])
+                            action_items_count += len(acts)
+                            for act in acts:
+                                text_bytes += len(act.get("content", "") or "")
+                            decs = a.get("decisions", [])
+                            decisions_count += len(decs)
+                            for dec in decs:
+                                text_bytes += len(dec.get("content", "") or "")
+                            dts = a.get("important_dates", [])
+                            important_dates_count += len(dts)
+                            for dt in dts:
+                                text_bytes += len(dt.get("label", "") or "") + len(dt.get("description", "") or "")
+
+                    total_records = projects_count + analyses_count + key_points_count + action_items_count + decisions_count + important_dates_count
+                    used_bytes = text_bytes + (total_records * 256)
+                    effective_limit = storage_limit_bytes if storage_limit_bytes is not None else 104857600
+
+                    return {
+                        "projects_count": projects_count,
+                        "analyses_count": analyses_count,
+                        "key_points_count": key_points_count,
+                        "action_items_count": action_items_count,
+                        "decisions_count": decisions_count,
+                        "important_dates_count": important_dates_count,
+                        "total_chars_processed": text_bytes,
+                        "used_storage_bytes": used_bytes,
+                        "limit_storage_bytes": effective_limit,
+                    }
+                raise DatabaseOperationError(f"Supabase get_user_storage_stats failed (HTTP {res.status_code}): {res.text}")
+            except httpx.TimeoutException as te:
+                raise DatabaseTimeoutError("Database operation timed out. Please try again.") from te
+            except httpx.RequestError as e:
+                raise DatabaseConnectionError(f"Network error connecting to Supabase: {str(e)}") from e
+
+        _init_local_db()
+        conn = sqlite3.connect(LOCAL_DB_PATH)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM projects WHERE user_id = ?", (user_id,))
+            projects_count = cursor.fetchone()[0]
+
+            cursor.execute("""
+                SELECT COUNT(*), COALESCE(SUM(LENGTH(a.summary) + LENGTH(a.title)), 0)
+                FROM analyses a
+                JOIN projects p ON a.project_id = p.id
+                WHERE p.user_id = ?
+            """, (user_id,))
+            row = cursor.fetchone()
+            analyses_count = row[0]
+            analyses_bytes = row[1]
+
+            cursor.execute("""
+                SELECT COUNT(*), COALESCE(SUM(LENGTH(kp.content)), 0)
+                FROM key_points kp
+                JOIN analyses a ON kp.analysis_id = a.id
+                JOIN projects p ON a.project_id = p.id
+                WHERE p.user_id = ?
+            """, (user_id,))
+            row = cursor.fetchone()
+            key_points_count = row[0]
+            kp_bytes = row[1]
+
+            cursor.execute("""
+                SELECT COUNT(*), COALESCE(SUM(LENGTH(act.content)), 0)
+                FROM action_items act
+                JOIN analyses a ON act.analysis_id = a.id
+                JOIN projects p ON a.project_id = p.id
+                WHERE p.user_id = ?
+            """, (user_id,))
+            row = cursor.fetchone()
+            action_items_count = row[0]
+            action_bytes = row[1]
+
+            cursor.execute("""
+                SELECT COUNT(*), COALESCE(SUM(LENGTH(dec.content)), 0)
+                FROM decisions dec
+                JOIN analyses a ON dec.analysis_id = a.id
+                JOIN projects p ON a.project_id = p.id
+                WHERE p.user_id = ?
+            """, (user_id,))
+            row = cursor.fetchone()
+            decisions_count = row[0]
+            decision_bytes = row[1]
+
+            cursor.execute("""
+                SELECT COUNT(*), COALESCE(SUM(LENGTH(dt.label) + LENGTH(COALESCE(dt.description, ''))), 0)
+                FROM important_dates dt
+                JOIN analyses a ON dt.analysis_id = a.id
+                JOIN projects p ON a.project_id = p.id
+                WHERE p.user_id = ?
+            """, (user_id,))
+            row = cursor.fetchone()
+            important_dates_count = row[0]
+            dates_bytes = row[1]
+
+            raw_chars = analyses_bytes + kp_bytes + action_bytes + decision_bytes + dates_bytes
+            total_records = projects_count + analyses_count + key_points_count + action_items_count + decisions_count + important_dates_count
+            used_storage_bytes = raw_chars + (total_records * 256)
+            effective_limit = storage_limit_bytes if storage_limit_bytes is not None else 104857600
+
+            return {
+                "projects_count": projects_count,
+                "analyses_count": analyses_count,
+                "key_points_count": key_points_count,
+                "action_items_count": action_items_count,
+                "decisions_count": decisions_count,
+                "important_dates_count": important_dates_count,
+                "total_chars_processed": raw_chars,
+                "used_storage_bytes": used_storage_bytes,
+                "limit_storage_bytes": effective_limit,
+            }
+        finally:
+            conn.close()
+
+    def count_user_projects(self, user_id: str, user_token: Optional[str] = None) -> int:
+        """Counts the total number of projects owned by user_id."""
+        self._ensure_configured()
+        if not self._active_sqlite_mode:
+            url = f"{self.supabase_url}/rest/v1/projects?user_id=eq.{user_id}&select=id"
+            try:
+                headers = {**self._get_supabase_headers(user_token), "Prefer": "count=exact"}
+                res = httpx.get(url, headers=headers, timeout=10.0)
+                if res.status_code == 200:
+                    content_range = res.headers.get("content-range")
+                    if content_range and "/" in content_range:
+                        total_str = content_range.split("/")[-1]
+                        if total_str != "*":
+                            return int(total_str)
+                    return len(res.json())
+                raise DatabaseOperationError(f"Supabase count_user_projects failed (HTTP {res.status_code}): {res.text}")
+            except httpx.TimeoutException as te:
+                raise DatabaseTimeoutError("Database operation timed out.") from te
+            except httpx.RequestError as e:
+                raise DatabaseConnectionError(f"Network error connecting to Supabase: {str(e)}") from e
+
+        _init_local_db()
+        conn = sqlite3.connect(LOCAL_DB_PATH)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM projects WHERE user_id = ?", (user_id,))
+            return cursor.fetchone()[0]
+        finally:
+            conn.close()
+
+    def count_user_analyses_in_month(self, user_id: str, year: int, month: int, user_token: Optional[str] = None) -> int:
+        """Counts the total analyses created by user_id within a calendar month."""
+        self._ensure_configured()
+        start_iso = f"{year:04d}-{month:02d}-01T00:00:00Z"
+        if month == 12:
+            end_iso = f"{year + 1:04d}-01-01T00:00:00Z"
+        else:
+            end_iso = f"{year:04d}-{month + 1:02d}-01T00:00:00Z"
+
+        if not self._active_sqlite_mode:
+            # Query projects owned by user, then count analyses
+            url = f"{self.supabase_url}/rest/v1/projects?user_id=eq.{user_id}&select=id,analyses(id,created_at)&analyses.created_at=gte.{start_iso}&analyses.created_at=lt.{end_iso}"
+            try:
+                headers = self._get_supabase_headers(user_token)
+                res = httpx.get(url, headers=headers, timeout=10.0)
+                if res.status_code == 200:
+                    total_count = 0
+                    for p in res.json():
+                        total_count += len(p.get("analyses", []))
+                    return total_count
+                raise DatabaseOperationError(f"Supabase count_user_analyses_in_month failed (HTTP {res.status_code}): {res.text}")
+            except httpx.TimeoutException as te:
+                raise DatabaseTimeoutError("Database operation timed out.") from te
+            except httpx.RequestError as e:
+                raise DatabaseConnectionError(f"Network error connecting to Supabase: {str(e)}") from e
+
+        _init_local_db()
+        conn = sqlite3.connect(LOCAL_DB_PATH)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) FROM analyses a
+                JOIN projects p ON a.project_id = p.id
+                WHERE p.user_id = ? AND a.created_at >= ? AND a.created_at < ?
+            """, (user_id, start_iso, end_iso))
+            return cursor.fetchone()[0]
+        finally:
+            conn.close()
+
+    def delete_user_data(self, user_id: str, user_token: Optional[str] = None) -> bool:
+        """Deletes all projects and cascading project memory entities owned by user_id."""
+        self._ensure_configured()
+
+        if not self._active_sqlite_mode:
+            url = f"{self.supabase_url}/rest/v1/projects?user_id=eq.{user_id}"
+            try:
+                res = httpx.delete(url, headers=self._get_supabase_headers(user_token), timeout=10.0)
+                if res.status_code in (200, 204):
+                    return True
+                raise DatabaseOperationError(f"Supabase delete_user_data failed (HTTP {res.status_code}): {res.text}")
+            except httpx.TimeoutException as te:
+                raise DatabaseTimeoutError("Database operation timed out. Please try again.") from te
+            except httpx.RequestError as e:
+                raise DatabaseConnectionError(f"Network error connecting to Supabase: {str(e)}") from e
+
+        _init_local_db()
+        conn = sqlite3.connect(LOCAL_DB_PATH)
+        try:
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("DELETE FROM projects WHERE user_id = ?", (user_id,))
+            conn.commit()
+            return True
         finally:
             conn.close()
 

@@ -1,4 +1,4 @@
-from fastapi.testclient import TestClient
+﻿from fastapi.testclient import TestClient
 from app.main import app
 from app.services.chunking_service import (
     normalize_text,

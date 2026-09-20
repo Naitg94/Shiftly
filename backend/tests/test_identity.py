@@ -2,8 +2,13 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
+from app.db.repository import _init_local_db
 
 os.environ["TEST_USE_SQLITE"] = "true"
+
+@pytest.fixture(autouse=True)
+def setup_test_db():
+    _init_local_db(clear=True)
 
 client_a = TestClient(app, headers={"Authorization": "Bearer test-token-user-a"})
 client_b = TestClient(app, headers={"Authorization": "Bearer test-token-user-b"})
@@ -103,6 +108,49 @@ def test_unauthenticated_requests_cannot_access_identity_or_projects():
     """
     Confirms that unauthenticated requests cannot access projects or inject arbitrary identities.
     """
-    res = raw_client.get("/api/projects", headers={"X-Display-Name": "Guest Tester"})
+    res = raw_client.get("/api/projects", headers={"X-Display-Name": "Guest Tester", "X-Username": "Guest Tester"})
     assert res.status_code == 401
     assert "Missing Bearer token" in res.json()["detail"]
+
+
+def test_username_cannot_alter_user_id_or_ownership():
+    """
+    Confirms that client-supplied username headers or body fields cannot alter JWT subject or project ownership.
+    """
+    spoofed = TestClient(
+        app,
+        headers={
+            "Authorization": "Bearer test-token-user-a",
+            "X-User-ID": "00000000-0000-0000-0000-000000000002",
+            "X-Username": "User B Impersonator",
+        },
+    )
+    res = spoofed.post(
+        "/api/projects",
+        json={"name": "Username Spoof Test", "username": "User B"},
+    )
+    assert res.status_code == 201
+    proj_id = res.json()["id"]
+
+    # User B should NOT see this project
+    assert client_b.get(f"/api/projects/{proj_id}").status_code == 404
+    # User A sees it
+    assert client_a.get(f"/api/projects/{proj_id}").status_code == 200
+
+
+def test_users_with_identical_usernames_remain_isolated():
+    """
+    Confirms that two users with identical usernames remain completely isolated.
+    """
+    res_a = client_a.post("/api/projects", json={"name": "Shared Username Proj A"})
+    assert res_a.status_code == 201
+    res_b = client_b.post("/api/projects", json={"name": "Shared Username Proj B"})
+    assert res_b.status_code == 201
+
+    list_a = [p["id"] for p in client_a.get("/api/projects").json()]
+    list_b = [p["id"] for p in client_b.get("/api/projects").json()]
+    assert res_a.json()["id"] in list_a
+    assert res_b.json()["id"] not in list_a
+    assert res_b.json()["id"] in list_b
+    assert res_a.json()["id"] not in list_b
+

@@ -262,7 +262,7 @@ export default function ProjectMemory({ onLoadAnalysis }: ProjectMemoryProps) {
               <Database className="h-3 w-3" />
               Project Memory
             </span>
-            <span className="text-xs text-slate-500">•</span>
+            <span className="text-xs text-slate-500">&bull;</span>
             <span className="text-xs text-slate-400">Persistent Intelligence</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">

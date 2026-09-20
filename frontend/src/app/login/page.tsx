@@ -24,9 +24,11 @@ export default function LoginPage() {
   if (isLoading || user) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white font-bold text-xl shadow-lg shadow-blue-500/20">
-          S
-        </div>
+        <img
+          src="/favicon.ico"
+          alt="Shiftly"
+          className="h-10 w-10 shrink-0 object-contain"
+        />
         <div className="flex items-center gap-2 text-xs text-slate-400">
           <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
           <span>{user ? 'Redirecting to Shiftly...' : 'Checking session...'}</span>
@@ -64,9 +66,11 @@ export default function LoginPage() {
       {/* Brand Header */}
       <div className="w-full max-w-md space-y-6 text-center">
         <div className="inline-flex items-center gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white font-bold text-xl shadow-lg shadow-blue-500/20">
-            S
-          </div>
+          <img
+            src="/favicon.ico"
+            alt="Shiftly"
+            className="h-10 w-10 shrink-0 object-contain"
+          />
           <span className="text-2xl font-bold tracking-tight text-white">Shiftly</span>
         </div>
         <div className="space-y-1">
@@ -123,7 +127,7 @@ export default function LoginPage() {
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="Enter your password"
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
               />
             </div>

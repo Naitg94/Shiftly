@@ -32,6 +32,18 @@ class Settings:
     RATE_LIMIT_PROJECTS_WRITE_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PROJECTS_WRITE_PER_MINUTE", "30"))
     RATE_LIMIT_RECOVERY_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_RECOVERY_PER_MINUTE", "5"))
 
+    # Preview Mode & Commercial Entitlement
+    PREVIEW_MODE: bool = os.getenv("PREVIEW_MODE", "true").lower() in ("true", "1", "yes")
+    PREVIEW_ENTITLEMENT: str = os.getenv("PREVIEW_ENTITLEMENT", "PRO").upper()
+
+    # Private Lifetime Pro Entitlement (Comma-separated Supabase User UUIDs)
+    # Strictly server-side; NEVER expose to frontend or NEXT_PUBLIC_* variables.
+    PRIVATE_PRO_USER_IDS_RAW: str = os.getenv("PRIVATE_PRO_USER_IDS", "")
+
+    @property
+    def private_pro_user_ids(self) -> List[str]:
+        return [uid.strip() for uid in self.PRIVATE_PRO_USER_IDS_RAW.split(",") if uid.strip()]
+
     # CORS
     CORS_ORIGINS_RAW: str = os.getenv("CORS_ORIGINS", "http://localhost:3000")
     

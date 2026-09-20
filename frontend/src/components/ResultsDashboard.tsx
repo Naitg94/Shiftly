@@ -182,7 +182,7 @@ export default function ResultsDashboard({
               <Sparkles className="h-3 w-3" />
               Intelligence Extracted
             </span>
-            <span className="text-xs text-slate-500">•</span>
+            <span className="text-xs text-slate-500">&bull;</span>
             <span className="text-xs text-slate-400">{result.analyzedAt}</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">

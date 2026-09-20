@@ -1,4 +1,4 @@
-import uuid
+﻿import uuid
 from typing import Optional, List, Literal
 from pydantic import BaseModel, Field, field_validator
 from app.models.schemas import SourceReference, ShiftlyAnalysisResult

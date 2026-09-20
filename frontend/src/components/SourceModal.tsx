@@ -50,7 +50,7 @@ export default function SourceModal({ source, onClose }: SourceModalProps) {
                 <FileText className="h-3 w-3" />
                 {source.sourceType}
               </span>
-              <span className="text-xs text-slate-400">•</span>
+              <span className="text-xs text-slate-400">&bull;</span>
               <span className="text-xs text-slate-400">{source.messageRef}</span>
             </div>
             <h3 id="source-modal-title" className="text-base font-semibold text-white">

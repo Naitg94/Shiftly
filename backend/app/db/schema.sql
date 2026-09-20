@@ -1,4 +1,4 @@
--- Shiftly Project Memory Database Schema (Supabase PostgreSQL)
+﻿-- Shiftly Project Memory Database Schema (Supabase PostgreSQL)
 -- Step 6.2 Multi-Tenant Authorization & Row Level Security
 
 -- 1. Projects Table

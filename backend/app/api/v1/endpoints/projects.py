@@ -65,6 +65,8 @@ def handle_db_exception(e: Exception, operation: str) -> None:
     )
 
 
+from app.core.plans import resolve_entitlement
+
 @router.post(
     "/projects",
     response_model=Project,
@@ -82,6 +84,22 @@ def create_project(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Project name cannot be empty or only whitespace.",
+        )
+
+    # Enforce plan project limit
+    entitlement = resolve_entitlement(current_user)
+    limits = entitlement.limits
+    current_count = memory_repo.count_user_projects(user_id=current_user.id, user_token=current_user.token)
+    if current_count >= limits.max_projects:
+        logger.warning(
+            "project_creation_rejected_limit_reached user_id=%s count=%d limit=%d",
+            current_user.id,
+            current_count,
+            limits.max_projects,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Project limit reached. Your plan allows up to {limits.max_projects} projects.",
         )
 
     logger.info("project_save_started user_id=%s", current_user.id)

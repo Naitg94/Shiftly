@@ -10,7 +10,7 @@ export default function SignUpPage() {
   const router = useRouter();
   const { signUp, user, isLoading } = useAuth();
 
-  const [displayName, setDisplayName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -27,9 +27,11 @@ export default function SignUpPage() {
   if (isLoading || user) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white font-bold text-xl shadow-lg shadow-blue-500/20">
-          S
-        </div>
+        <img
+          src="/favicon.ico"
+          alt="Shiftly"
+          className="h-10 w-10 shrink-0 object-contain"
+        />
         <div className="flex items-center gap-2 text-xs text-slate-400">
           <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
           <span>{user ? 'Redirecting to Shiftly...' : 'Checking session...'}</span>
@@ -40,24 +42,24 @@ export default function SignUpPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmedName = displayName.trim();
-    if (!trimmedName) {
-      setErrorMessage('Please enter your display name.');
+    const trimmedUsername = username.trim();
+    if (!trimmedUsername) {
+      setErrorMessage('Please enter your username.');
       return;
     }
 
-    if (trimmedName.length < 2) {
-      setErrorMessage('Display name must be at least 2 characters long.');
+    if (trimmedUsername.length < 2) {
+      setErrorMessage('Username must be at least 2 characters long.');
       return;
     }
 
-    if (trimmedName.length > 50) {
-      setErrorMessage('Display name cannot exceed 50 characters.');
+    if (trimmedUsername.length > 50) {
+      setErrorMessage('Username cannot exceed 50 characters.');
       return;
     }
 
-    if (/[\u0000-\u001F\u007F-\u009F]/.test(trimmedName)) {
-      setErrorMessage('Display name contains invalid characters.');
+    if (/[\u0000-\u001F\u007F-\u009F]/.test(trimmedUsername)) {
+      setErrorMessage('Username contains invalid characters.');
       return;
     }
 
@@ -66,8 +68,8 @@ export default function SignUpPage() {
       return;
     }
 
-    if (password.length < 6) {
-      setErrorMessage('Password must be at least 6 characters long.');
+    if (password.length < 8) {
+      setErrorMessage('Password must be at least 8 characters long.');
       return;
     }
 
@@ -81,7 +83,7 @@ export default function SignUpPage() {
     setSuccessMessage(null);
 
     try {
-      const { error, user: createdUser } = await signUp(email.trim(), password, trimmedName);
+      const { error, user: createdUser } = await signUp(email.trim(), password, trimmedUsername);
       if (error) {
         setErrorMessage(error.message);
       } else if (createdUser && !createdUser.identities?.length) {
@@ -102,9 +104,11 @@ export default function SignUpPage() {
       {/* Brand Header */}
       <div className="w-full max-w-md space-y-6 text-center">
         <div className="inline-flex items-center gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white font-bold text-xl shadow-lg shadow-blue-500/20">
-            S
-          </div>
+          <img
+            src="/favicon.ico"
+            alt="Shiftly"
+            className="h-10 w-10 shrink-0 object-contain"
+          />
           <span className="text-2xl font-bold tracking-tight text-white">Shiftly</span>
         </div>
         <div className="space-y-1">
@@ -134,17 +138,17 @@ export default function SignUpPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <label htmlFor="signup-display-name" className="text-xs font-semibold text-slate-300">
-                Display Name
+              <label htmlFor="signup-username" className="text-xs font-semibold text-slate-300">
+                Username
               </label>
               <input
-                id="signup-display-name"
+                id="signup-username"
                 type="text"
                 required
-                autoComplete="name"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="e.g. Alex Morgan"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="e.g. alexmorgan"
                 maxLength={50}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
               />
@@ -177,7 +181,8 @@ export default function SignUpPage() {
                 autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Minimum 6 characters"
+                placeholder="Minimum 8 characters"
+                minLength={8}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
               />
             </div>

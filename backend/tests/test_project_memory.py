@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import pytest
 
@@ -32,7 +32,7 @@ SAMPLE_SRC = SourceReference(
 SAMPLE_RESULT = ShiftlyAnalysisResult(
     id="test-analysis-401",
     title="Riverside Office Design Review",
-    analyzedAt="October 12, 2024 • 11:45 AM",
+    analyzedAt="October 12, 2024 â€¢ 11:45 AM",
     stats=AnalysisStats(
         messagesAnalyzed=12,
         participantsCount=3,

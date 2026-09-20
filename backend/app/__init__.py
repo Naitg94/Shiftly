@@ -1,1 +1,1 @@
-"""Shiftly Backend Application Package."""
+﻿"""Shiftly Backend Application Package."""

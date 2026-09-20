@@ -25,13 +25,18 @@ logger = logging.getLogger("shiftly.api.analyze")
 router = APIRouter()
 
 
+from datetime import datetime, timezone
+from app.core.plans import resolve_entitlement
+from app.db.repository import memory_repo
+
+
 @router.post(
     "/analyze",
     response_model=ShiftlyAnalysisResult,
-    summary="Analyze Unstructured Communication (Pasted Text)",
-    description="Extracts structured key points, actions, decisions, and dates from raw project communication using Gemini.",
+    summary="Analyze Communication Text",
+    description="Processes raw text of team conversations, chat threads, email chains, or transcripts to extract structured project intelligence.",
 )
-def analyze(
+async def analyze_text(
     payload: AnalyzeRequest,
     current_user: Optional[AuthenticatedUser] = Depends(get_optional_current_user),
     _rate_limit: bool = Depends(rate_limit_analyze),
@@ -44,9 +49,34 @@ def analyze(
         )
 
     user_label = current_user.id if current_user else "guest"
+    text_length = len(payload.text)
+
+    # Resolve plan limits
+    entitlement = resolve_entitlement(current_user)
+    limits = entitlement.limits
+
+    # Check monthly quota for authenticated users
+    if current_user is not None and limits.analysis_limit is not None:
+        now = datetime.now(timezone.utc)
+        monthly_count = memory_repo.count_user_analyses_in_month(
+            user_id=current_user.id,
+            year=now.year,
+            month=now.month,
+            user_token=current_user.token,
+        )
+        if monthly_count >= limits.analysis_limit:
+            logger.warning(
+                "analysis_rejected_monthly_limit_reached user_id=%s count=%d limit=%d",
+                current_user.id,
+                monthly_count,
+                limits.analysis_limit,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Monthly analysis limit of {limits.analysis_limit} reached for your plan.",
+            )
 
     # 2. Server-side character length enforcement
-    text_length = len(payload.text)
     if current_user is None:
         if text_length > settings.GUEST_MAX_TEXT_CHAR_COUNT:
             logger.warning(
@@ -59,21 +89,21 @@ def analyze(
                 detail=(
                     f"This analysis is too large for guest mode ({text_length:,} characters, "
                     f"maximum {settings.GUEST_MAX_TEXT_CHAR_COUNT:,} characters). "
-                    f"Create a free account or sign in to analyze up to {settings.MAX_INPUT_TEXT_CHARS:,} "
+                    f"Create a free account or sign in to analyze up to {limits.max_characters_per_analysis:,} "
                     f"characters and save results to Project Memory."
                 ),
             )
     else:
-        if text_length > settings.MAX_INPUT_TEXT_CHARS:
+        if text_length > limits.max_characters_per_analysis:
             logger.warning(
                 "authenticated_analysis_rejected_oversized chars=%d limit=%d user_id=%s",
                 text_length,
-                settings.MAX_INPUT_TEXT_CHARS,
+                limits.max_characters_per_analysis,
                 current_user.id,
             )
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"Text exceeds maximum allowed length of {settings.MAX_INPUT_TEXT_CHARS:,} characters.",
+                detail=f"Text exceeds maximum allowed length of {limits.max_characters_per_analysis:,} characters for your plan.",
             )
 
     start_t = time.perf_counter()
@@ -155,10 +185,67 @@ async def analyze_file(
         )
 
     user_label = current_user.id if current_user else "guest"
+    entitlement = resolve_entitlement(current_user)
+    limits = entitlement.limits
+    effective_tier = entitlement.effective_plan
+
+    # Check monthly quota for authenticated users
+    if current_user is not None and limits.analysis_limit is not None:
+        now = datetime.now(timezone.utc)
+        monthly_count = memory_repo.count_user_analyses_in_month(
+            user_id=current_user.id,
+            year=now.year,
+            month=now.month,
+            user_token=current_user.token,
+        )
+        if monthly_count >= limits.analysis_limit:
+            logger.warning(
+                "file_analysis_rejected_monthly_limit_reached user_id=%s count=%d limit=%d",
+                current_user.id,
+                monthly_count,
+                limits.analysis_limit,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Monthly analysis limit of {limits.analysis_limit} reached for your plan.",
+            )
+
+    # Determine input format from filename
+    fname_lower = file.filename.lower()
+    file_format = None
+    if fname_lower.endswith(".zip"):
+        file_format = "ZIP"
+    elif fname_lower.endswith(".eml"):
+        file_format = "EML"
+    elif fname_lower.endswith(".mbox"):
+        file_format = "MBOX"
+    elif fname_lower.endswith(".pdf"):
+        file_format = "PDF"
+    elif fname_lower.endswith(".docx"):
+        file_format = "DOCX"
+    elif fname_lower.endswith(".txt"):
+        file_format = "TXT"
+
+    # Enforce format support for authenticated users
+    if current_user is not None and file_format is not None:
+        allowed_inputs = [inp.upper() for inp in limits.supported_inputs]
+        if file_format.upper() not in allowed_inputs and not (file_format == "ZIP" and "WHATSAPP" in allowed_inputs):
+            logger.warning(
+                "file_analysis_rejected_unsupported_format format=%s plan=%s user_id=%s",
+                file_format,
+                effective_tier.value,
+                current_user.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"The {file_format} file format is not supported on your plan. Upgrade to unlock expanded formats.",
+            )
+
     start_t = time.perf_counter()
     logger.info("analysis_started type=file filename=%s user_id=%s", file.filename, user_label)
 
-    # 2. Read file content safely in chunks with strict size enforcement
+    # 2. Read file content safely in chunks with plan-specific size enforcement
+    allowed_max_bytes = limits.max_file_size_bytes if current_user else MAX_FILE_SIZE_BYTES
     try:
         chunk_size = 1024 * 1024  # 1MB
         chunks = []
@@ -168,10 +255,10 @@ async def analyze_file(
             if not chunk:
                 break
             total_bytes += len(chunk)
-            if total_bytes > MAX_FILE_SIZE_BYTES:
+            if total_bytes > allowed_max_bytes:
                 raise HTTPException(
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"Uploaded file exceeds maximum allowed size of {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB.",
+                    detail=f"Uploaded file exceeds maximum allowed size of {allowed_max_bytes // (1024 * 1024)} MB for your plan.",
                 )
             chunks.append(chunk)
         content = b"".join(chunks)
@@ -254,17 +341,17 @@ async def analyze_file(
                 ),
             )
     else:
-        if extracted_chars > settings.MAX_INPUT_TEXT_CHARS:
+        if extracted_chars > limits.max_characters_per_analysis:
             logger.warning(
                 "authenticated_file_analysis_rejected_oversized filename=%s chars=%d limit=%d user_id=%s",
                 file.filename,
                 extracted_chars,
-                settings.MAX_INPUT_TEXT_CHARS,
+                limits.max_characters_per_analysis,
                 current_user.id,
             )
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"Extracted document text exceeds maximum allowed length of {settings.MAX_INPUT_TEXT_CHARS:,} characters.",
+                detail=f"Extracted document text exceeds maximum allowed length of {limits.max_characters_per_analysis:,} characters for your plan.",
             )
 
     # 5. Process through existing Step 2 AI extraction & chunking pipeline

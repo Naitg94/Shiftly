@@ -20,7 +20,7 @@ router = APIRouter()
 
 
 class VerifyRecoveryRequest(BaseModel):
-    username: str = Field(..., min_length=2, max_length=50, description="Username or Display Name")
+    username: str = Field(..., min_length=2, max_length=50, description="Username")
     email: str = Field(..., min_length=3, max_length=255, description="Registered account email address")
 
 
@@ -45,7 +45,7 @@ class ResetPasswordResponse(BaseModel):
     "/password-recovery/verify",
     response_model=VerifyRecoveryResponse,
     summary="Verify Account for MVP Password Recovery",
-    description="Matches supplied username (display name) and email address. Issues a single-use recovery token if matched.",
+    description="Matches supplied username and email address. Issues a single-use recovery token if matched.",
 )
 async def verify_recovery(
     payload: VerifyRecoveryRequest,

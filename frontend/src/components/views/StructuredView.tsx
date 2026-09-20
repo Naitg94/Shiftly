@@ -94,7 +94,7 @@ export default function StructuredView({ result, onOpenSource }: StructuredViewP
                   </span>
                   {dec.date && (
                     <>
-                      <span>•</span>
+                      <span>&bull;</span>
                       <span className="text-slate-500 font-mono">{dec.date}</span>
                     </>
                   )}

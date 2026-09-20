@@ -13,7 +13,7 @@ from app.core.middleware import (
     request_id_ctx,
 )
 from app.core.rate_limiter import RateLimitExceededException
-from app.api.v1.endpoints import health, analyze, projects, recovery, plans
+from app.api.v1.endpoints import health, analyze, projects, recovery, plans, account
 
 # Setup structured logging with correlation ID and secret redaction
 logging_handler = logging.StreamHandler()
@@ -31,7 +31,7 @@ logger = logging.getLogger("shiftly.main")
 # Initialize FastAPI application
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="Shiftly — Find what matters. Backend API for communication intelligence layer.",
+    description="Shiftly”  Find what matters. Backend API for communication intelligence layer.",
     version=settings.VERSION,
     docs_url="/docs" if settings.ENABLE_DOCS else None,
     redoc_url="/redoc" if settings.ENABLE_DOCS else None,
@@ -118,6 +118,7 @@ app.include_router(analyze.router, prefix="/api", tags=["analyze"])
 app.include_router(projects.router, prefix="/api", tags=["projects"])
 app.include_router(recovery.router, prefix="/api", tags=["recovery"])
 app.include_router(plans.router, prefix="/api", tags=["plans"])
+app.include_router(account.router, prefix="/api", tags=["account"])
 
 
 @app.get("/", summary="Root Endpoint")

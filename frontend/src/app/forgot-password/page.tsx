@@ -37,12 +37,12 @@ export default function ForgotPasswordPage() {
     const cleanEmail = email.trim();
 
     if (!cleanUser || !cleanEmail) {
-      setErrorMessage('Please fill in both your display name and email address.');
+      setErrorMessage('Please fill in both your username and email address.');
       return;
     }
 
     if (cleanUser.length < 2 || cleanUser.length > 50) {
-      setErrorMessage('Display name must be between 2 and 50 characters.');
+      setErrorMessage('Username must be between 2 and 50 characters.');
       return;
     }
 
@@ -116,9 +116,11 @@ export default function ForgotPasswordPage() {
       <div className="w-full max-w-md space-y-6 text-center">
         {/* Brand Header */}
         <div className="inline-flex items-center gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white font-bold text-xl shadow-lg shadow-blue-500/20">
-            S
-          </div>
+          <img
+            src="/favicon.ico"
+            alt="Shiftly"
+            className="h-10 w-10 shrink-0 object-contain"
+          />
           <span className="text-2xl font-bold tracking-tight text-white">Shiftly</span>
         </div>
 
@@ -160,7 +162,7 @@ export default function ForgotPasswordPage() {
             <form onSubmit={handleVerifySubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <label htmlFor="recovery-username" className="text-xs font-semibold text-slate-300">
-                  Username / Display Name
+                  Username
                 </label>
                 <input
                   id="recovery-username"

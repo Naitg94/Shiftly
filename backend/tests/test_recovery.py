@@ -25,13 +25,13 @@ def reset_state():
     reset_test_recovery_state()
     register_test_user(
         email="alex@example.com",
-        display_name="Alex Morgan",
+        username="Alex Morgan",
         password="OldPassword123!",
         user_id="00000000-0000-0000-0000-000000000001",
     )
     register_test_user(
         email="bob@example.com",
-        display_name="Bob Vance",
+        username="Bob Vance",
         password="OldPassword123!",
         user_id="00000000-0000-0000-0000-000000000002",
     )
@@ -373,5 +373,42 @@ def test_token_immutably_bound_to_verified_account():
     assert get_test_user_password("alex@example.com") == new_pwd
     # User B's password strictly UNCHANGED
     assert get_test_user_password("bob@example.com") == "OldPassword123!"
+
+
+# =========================================================================
+# 17. BACKWARD COMPATIBILITY: USERNAME VS LEGACY DISPLAY_NAME
+# =========================================================================
+
+def test_recovery_with_new_username_field():
+    """User registered with new username metadata field is verified successfully."""
+    register_test_user(
+        email="clara@example.com",
+        username="Clara Oswald",
+        password="OldPassword123!",
+        user_id="00000000-0000-0000-0000-000000000003",
+    )
+    res = client.post(
+        "/api/password-recovery/verify",
+        json={"username": "Clara Oswald", "email": "clara@example.com"},
+    )
+    assert res.status_code == 200
+    assert "recovery_token" in res.json()
+
+
+def test_recovery_with_legacy_display_name_only():
+    """Existing user registered with legacy display_name field is verified successfully."""
+    register_test_user(
+        email="donna@example.com",
+        display_name="Donna Noble",
+        password="OldPassword123!",
+        user_id="00000000-0000-0000-0000-000000000004",
+    )
+    res = client.post(
+        "/api/password-recovery/verify",
+        json={"username": "Donna Noble", "email": "donna@example.com"},
+    )
+    assert res.status_code == 200
+    assert "recovery_token" in res.json()
+
 
 

@@ -1,4 +1,4 @@
-# Shiftly — "Find what matters."
+﻿# Shiftly” "Find what matters."
 
 Shiftly is an AI-powered communication intelligence layer. Its purpose is to process long, unstructured project communication and extract only the critical information so users do not have to read the entire conversation.
 
@@ -6,11 +6,11 @@ Shiftly is an AI-powered communication intelligence layer. Its purpose is to pro
 
 ```
 Shiftly/
-├── frontend/        # Next.js (App Router, TypeScript, Tailwind CSS)
-├── backend/         # FastAPI (Python, Uvicorn, Pydantic)
-├── README.md
-├── .gitignore
-└── .env.example
+â”œâ”€â”€ frontend/        # Next.js (App Router, TypeScript, Tailwind CSS)
+â”œâ”€â”€ backend/         # FastAPI (Python, Uvicorn, Pydantic)
+â”œâ”€â”€ README.md
+â”œâ”€â”€ .gitignore
+â””â”€â”€ .env.example
 ```
 
 ## Getting Started

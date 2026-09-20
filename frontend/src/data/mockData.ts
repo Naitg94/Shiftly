@@ -1,7 +1,7 @@
 import { ShiftlyAnalysisResult } from "@/types/analysis";
 
 export const SAMPLE_CONVERSATION_RAW = `[10/12/2024, 08:34] David Miller (Client): Morning team. Did anyone get a chance to review the revised glazing package from yesterday? We really can't afford to push the envelope installation into November because of rainy season.
-[10/12/2024, 08:42] Elena Vance (Lead Architect): Good morning David. Yes, Studio Forma reviewed rev.C. We have a small issue with the acoustic laminate on the north facade—it doesn't meet the city sound ordinance by 2 dB.
+[10/12/2024, 08:42] Elena Vance (Lead Architect): Good morning David. Yes, Studio Forma reviewed rev.C. We have a small issue with the acoustic laminate on the north facade — it doesn't meet the city sound ordinance by 2 dB.
 [10/12/2024, 08:49] Marcus Brody (General Contractor): Hey all. We had the supplier on the phone this morning. If Elena signs off on the triple-pane alternate (Model AGC-400) by Thursday 4 PM, they can still guarantee delivery by November 3rd. Otherwise lead time extends 4 weeks.
 [10/12/2024, 09:05] David Miller (Client): Elena, what's the cost difference on the triple-pane alternate?
 [10/12/2024, 09:12] Elena Vance (Lead Architect): It's about $14,200 more across all 3 floors, but it exceeds the energy code and solves the acoustic rating issue completely.
