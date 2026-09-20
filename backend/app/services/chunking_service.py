@@ -1,4 +1,4 @@
-﻿import re
+import re
 from typing import List, Optional
 from app.models.schemas import (
     ShiftlyAnalysisResult,
@@ -250,35 +250,85 @@ def merge_analysis_results(results: List[ShiftlyAnalysisResult]) -> ShiftlyAnaly
         merged_kp.extend(r.keyPoints)
     merged_kp = select_meaningful_key_points(merged_kp)
 
-    # Deduplicate Actions
-    seen_act_keys: List[str] = []
+    # Deduplicate & consolidate Actions across chunks
     merged_actions: List[ActionItem] = []
     for r in results:
         for act in r.actions:
-            act_key = f"{act.action} ({act.responsiblePerson})"
-            if not _is_near_duplicate(act_key, seen_act_keys, threshold=0.75):
-                seen_act_keys.append(act_key)
+            matched_act = None
+            for existing in merged_actions:
+                # Direct match or high token overlap on action task
+                if _normalize_key(act.action) == _normalize_key(existing.action) or (
+                    _word_tokens(act.action) and _word_tokens(existing.action) and
+                    len(_word_tokens(act.action).intersection(_word_tokens(existing.action))) /
+                    len(_word_tokens(act.action).union(_word_tokens(existing.action))) >= 0.70
+                ):
+                    matched_act = existing
+                    break
+
+            if matched_act:
+                # Consolidate: if new act has assigned person and existing was Unassigned, update
+                if (not matched_act.responsiblePerson or matched_act.responsiblePerson in ("Unassigned", "Unknown")) and (act.responsiblePerson and act.responsiblePerson not in ("Unassigned", "Unknown")):
+                    matched_act.responsiblePerson = act.responsiblePerson
+                # Consolidate: if new act has explicit deadline and existing didn't, update
+                if not matched_act.deadline and act.deadline:
+                    matched_act.deadline = act.deadline
+                # Consolidate: priority
+                if act.priority == "High":
+                    matched_act.priority = "High"
+                # Consolidate source if new one has longer/better excerpt
+                if act.source and act.source.excerpt and (not matched_act.source or not matched_act.source.excerpt or len(act.source.excerpt) > len(matched_act.source.excerpt)):
+                    matched_act.source = act.source
+            else:
                 act.id = f"act-{len(merged_actions) + 1}"
                 merged_actions.append(act)
 
-    # Deduplicate Decisions
-    seen_dec_texts: List[str] = []
+    # Deduplicate & consolidate Decisions across chunks
     merged_decisions: List[DecisionItem] = []
     for r in results:
         for dec in r.decisions:
-            if not _is_near_duplicate(dec.decision, seen_dec_texts, threshold=0.75):
-                seen_dec_texts.append(dec.decision)
+            matched_dec = None
+            for existing in merged_decisions:
+                if _normalize_key(dec.decision) == _normalize_key(existing.decision) or (
+                    _word_tokens(dec.decision) and _word_tokens(existing.decision) and
+                    len(_word_tokens(dec.decision).intersection(_word_tokens(existing.decision))) /
+                    len(_word_tokens(dec.decision).union(_word_tokens(existing.decision))) >= 0.70
+                ):
+                    matched_dec = existing
+                    break
+
+            if matched_dec:
+                if (not matched_dec.approvedBy or matched_dec.approvedBy in ("Unknown", "—")) and (dec.approvedBy and dec.approvedBy not in ("Unknown", "—")):
+                    matched_dec.approvedBy = dec.approvedBy
+                if not matched_dec.date and dec.date:
+                    matched_dec.date = dec.date
+                if dec.source and dec.source.excerpt and (not matched_dec.source or not matched_dec.source.excerpt or len(dec.source.excerpt) > len(matched_dec.source.excerpt)):
+                    matched_dec.source = dec.source
+            else:
                 dec.id = f"dec-{len(merged_decisions) + 1}"
                 merged_decisions.append(dec)
 
-    # Deduplicate Important Dates
-    seen_dates: set = set()
+    # Deduplicate & consolidate Important Dates across chunks
     merged_dates: List[ImportantDateItem] = []
     for r in results:
         for dt in r.importantDates:
-            key = _normalize_key(f"{dt.date}_{dt.title}")
-            if key and key not in seen_dates:
-                seen_dates.add(key)
+            matched_dt = None
+            norm_date = _normalize_key(dt.date)
+            norm_title = _normalize_key(dt.title)
+            for existing in merged_dates:
+                if norm_date and norm_date == _normalize_key(existing.date):
+                    if norm_title == _normalize_key(existing.title) or _is_near_duplicate(dt.title, [existing.title], threshold=0.60):
+                        matched_dt = existing
+                        break
+                elif norm_title and norm_title == _normalize_key(existing.title):
+                    matched_dt = existing
+                    break
+
+            if matched_dt:
+                if len(dt.significance or "") > len(matched_dt.significance or ""):
+                    matched_dt.significance = dt.significance
+                if dt.source and dt.source.excerpt and (not matched_dt.source or not matched_dt.source.excerpt or len(dt.source.excerpt) > len(matched_dt.source.excerpt)):
+                    matched_dt.source = dt.source
+            else:
                 dt.id = f"dt-{len(merged_dates) + 1}"
                 merged_dates.append(dt)
 
@@ -294,8 +344,14 @@ def merge_analysis_results(results: List[ShiftlyAnalysisResult]) -> ShiftlyAnaly
         importantDatesCount=len(merged_dates),
     )
 
-    # Cohesive synthesized summary
-    combined_summary = " ".join(all_summaries) if len(all_summaries) <= 3 else f"{all_summaries[0]} Additionally, {all_summaries[-1]}"
+    # Cohesive synthesized summary from all chunks (deduplicating identical/near-duplicate sentences)
+    summary_sentences: List[str] = []
+    for s in all_summaries:
+        for sent in re.split(r"(?<=[.!?])\s+", s):
+            sent_clean = sent.strip()
+            if sent_clean and not _is_near_duplicate(sent_clean, summary_sentences, threshold=0.75):
+                summary_sentences.append(sent_clean)
+    combined_summary = " ".join(summary_sentences) if summary_sentences else (base.summary or "")
 
     return ShiftlyAnalysisResult(
         id=base.id,

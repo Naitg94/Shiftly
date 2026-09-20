@@ -18,8 +18,13 @@ export default function KeyPointsView({ keyPoints, onOpenSource }: KeyPointsView
         <span className="text-xs text-slate-500">Filtered for actionable business impact</span>
       </div>
 
-      <ul className="space-y-3">
-        {keyPoints.map((item, index) => (
+      {keyPoints.length === 0 ? (
+        <div className="p-4 rounded-xl border border-slate-800/80 bg-slate-900/20 text-xs text-slate-400">
+          No key points were identified.
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {keyPoints.map((item, index) => (
           <li
             key={item.id}
             className="group relative flex items-start justify-between gap-4 rounded-xl border border-slate-800 bg-slate-900/40 p-4 transition-all hover:border-slate-700 hover:bg-slate-900/80"
@@ -53,7 +58,8 @@ export default function KeyPointsView({ keyPoints, onOpenSource }: KeyPointsView
             </button>
           </li>
         ))}
-      </ul>
+        </ul>
+      )}
     </div>
   );
 }

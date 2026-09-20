@@ -51,7 +51,7 @@ export default function ResultsDashboard({
   isFromMemory = false,
 }: ResultsDashboardProps) {
   const { user } = useAuth();
-  const [activeView, setActiveView] = useState<ViewMode>("keypoints");
+  const [activeView, setActiveView] = useState<ViewMode>("structured");
   const [selectedSource, setSelectedSource] = useState<SourceReference | null>(null);
 
   // Save to Project State
@@ -89,10 +89,10 @@ export default function ResultsDashboard({
   }, [isAnySaveModalOpen, isSaveModalOpen, isGuestSaveModalOpen]);
 
   const tabs: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
+    { id: "structured", label: "Structured", icon: <LayoutGrid className="h-4 w-4" /> },
     { id: "keypoints", label: "Key Points", icon: <ListChecks className="h-4 w-4" /> },
     { id: "summary", label: "Summary", icon: <FileText className="h-4 w-4" /> },
     { id: "table", label: "Table", icon: <Table className="h-4 w-4" /> },
-    { id: "structured", label: "Structured", icon: <LayoutGrid className="h-4 w-4" /> },
   ];
 
   const handleSaveClick = () => {

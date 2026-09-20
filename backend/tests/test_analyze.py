@@ -1,4 +1,4 @@
-﻿from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient
 from app.main import app
 from app.services.chunking_service import (
     normalize_text,
@@ -380,6 +380,290 @@ def test_key_points_cap_and_selection():
     assert merged_res.stats.importantDatesCount == 6
 
 
+def test_action_and_decision_consolidation_across_chunks():
+    src1 = SourceReference(
+        id="src-1",
+        sourceType="Chat Export",
+        sourceName="Site Log",
+        date="Oct 12",
+        sender="David",
+        messageRef="Msg 1",
+        excerpt="Prepare drawings",
+    )
+    src2 = SourceReference(
+        id="src-2",
+        sourceType="Chat Export",
+        sourceName="Site Log",
+        date="Oct 12",
+        sender="David",
+        messageRef="Msg 20",
+        excerpt="Rahul, please issue revised ceiling framing drawings by Friday 5 PM.",
+    )
+
+    r1 = ShiftlyAnalysisResult(
+        id="res-c1",
+        title="Riverside Coordination",
+        analyzedAt="Now",
+        stats=AnalysisStats(messagesAnalyzed=10, keyPointsCount=0, actionsCount=1, decisionsCount=1, importantDatesCount=1),
+        summary="Initial coordination chunk.",
+        keyPoints=[],
+        actions=[
+            ActionItem(id="act-1", action="Issue revised ceiling framing drawings", responsiblePerson="Unassigned", deadline=None, source=src1)
+        ],
+        decisions=[
+            DecisionItem(id="dec-1", decision="Approve revised lobby layout", approvedBy="Unknown", date=None, source=src1)
+        ],
+        importantDates=[
+            ImportantDateItem(id="dt-1", title="Ceiling drawings delivery", date="Nov 3", significance="Draft milestone", source=src1)
+        ],
+    )
+
+    r2 = ShiftlyAnalysisResult(
+        id="res-c2",
+        title="Riverside Coordination",
+        analyzedAt="Now",
+        stats=AnalysisStats(messagesAnalyzed=15, keyPointsCount=0, actionsCount=1, decisionsCount=1, importantDatesCount=1),
+        summary="Later coordination chunk.",
+        keyPoints=[],
+        actions=[
+            ActionItem(id="act-2", action="Issue revised ceiling framing drawings", responsiblePerson="Rahul", deadline="Friday 5 PM", priority="High", source=src2)
+        ],
+        decisions=[
+            DecisionItem(id="dec-2", decision="Approve revised lobby layout", approvedBy="David Miller", date="Oct 12", source=src2)
+        ],
+        importantDates=[
+            ImportantDateItem(id="dt-2", title="Ceiling drawings delivery", date="Nov 3", significance="Prerequisite milestone before framing crew begins", source=src2)
+        ],
+    )
+
+    merged = merge_analysis_results([r1, r2])
+
+    # Actions consolidated
+    assert len(merged.actions) == 1
+    assert merged.actions[0].responsiblePerson == "Rahul"
+    assert merged.actions[0].deadline == "Friday 5 PM"
+    assert merged.actions[0].priority == "High"
+    assert merged.actions[0].source.excerpt == src2.excerpt
+
+    # Decisions consolidated
+    assert len(merged.decisions) == 1
+    assert merged.decisions[0].approvedBy == "David Miller"
+    assert merged.decisions[0].date == "Oct 12"
+    assert merged.decisions[0].source.excerpt == src2.excerpt
+
+    # Dates consolidated
+    assert len(merged.importantDates) == 1
+    assert merged.importantDates[0].significance == "Prerequisite milestone before framing crew begins"
+    assert merged.importantDates[0].source.excerpt == src2.excerpt
+
+
+def test_summary_synthesis_sentence_deduplication():
+    src = SourceReference(
+        id="src-1",
+        sourceType="Chat Export",
+        sourceName="Site Log",
+        date="Oct 12",
+        sender="David",
+        messageRef="Msg 1",
+        excerpt="Ex",
+    )
+
+    r1 = ShiftlyAnalysisResult(
+        id="res-s1",
+        title="Project S",
+        analyzedAt="Now",
+        stats=AnalysisStats(messagesAnalyzed=5, keyPointsCount=0, actionsCount=0, decisionsCount=0, importantDatesCount=0),
+        summary="Client approved the lobby layout and requested drawings. Coordination is ongoing.",
+        keyPoints=[],
+        actions=[],
+        decisions=[],
+        importantDates=[],
+    )
+
+    r2 = ShiftlyAnalysisResult(
+        id="res-s2",
+        title="Project S",
+        analyzedAt="Now",
+        stats=AnalysisStats(messagesAnalyzed=5, keyPointsCount=0, actionsCount=0, decisionsCount=0, importantDatesCount=0),
+        summary="Client approved the lobby layout and requested drawings. Structural team confirmed column C-4 ties.",
+        keyPoints=[],
+        actions=[],
+        decisions=[],
+        importantDates=[],
+    )
+
+    merged = merge_analysis_results([r1, r2])
+    # The duplicate first sentence should appear only once
+    first_sentence = "Client approved the lobby layout and requested drawings."
+    assert merged.summary.count(first_sentence) == 1
+    assert "Structural team confirmed column C-4 ties." in merged.summary
+    assert "Coordination is ongoing." in merged.summary
+
+
+def test_empty_analysis_result_handling():
+    src = SourceReference(
+        id="src-1",
+        sourceType="Chat Export",
+        sourceName="Site Log",
+        date="Oct 12",
+        sender="David",
+        messageRef="Msg 1",
+        excerpt="Ex",
+    )
+
+    r_empty = ShiftlyAnalysisResult(
+        id="res-empty",
+        title="Empty Project",
+        analyzedAt="Now",
+        stats=AnalysisStats(messagesAnalyzed=2, keyPointsCount=0, actionsCount=0, decisionsCount=0, importantDatesCount=0),
+        summary="Discussion took place without committed actions or decisions.",
+        keyPoints=[],
+        actions=[],
+        decisions=[],
+        importantDates=[],
+    )
+
+    merged = merge_analysis_results([r_empty])
+    assert len(merged.keyPoints) == 0
+    assert len(merged.actions) == 0
+    assert len(merged.decisions) == 0
+    assert len(merged.importantDates) == 0
+    assert merged.stats.actionsCount == 0
+    assert merged.stats.decisionsCount == 0
+    assert merged.stats.importantDatesCount == 0
+    assert merged.stats.keyPointsCount == 0
+
+
+def test_system_instruction_principles():
+    from app.services.gemini_service import SYSTEM_INSTRUCTION
+
+    # Verify all 9 core principles are present in the system prompt
+    assert "What actually matters in this communication?" in SYSTEM_INSTRUCTION
+    assert "1. SUMMARY:" in SYSTEM_INSTRUCTION
+    assert "2. KEY POINTS:" in SYSTEM_INSTRUCTION
+    assert "3. ACTION ITEMS & RESPONSIBILITY:" in SYSTEM_INSTRUCTION
+    assert "4. IMPORTANT DATES:" in SYSTEM_INSTRUCTION
+    assert "5. DECISIONS VS DEBATE & QUESTIONS:" in SYSTEM_INSTRUCTION
+    assert "6. APPROVALS:" in SYSTEM_INSTRUCTION
+    assert "7. SOURCE EVIDENCE & ZERO FABRICATION:" in SYSTEM_INSTRUCTION
+    assert "8. MULTILINGUAL & HINGLISH:" in SYSTEM_INSTRUCTION
+    assert "9. STRICT BOUNDARIES - DO NOT ADD:" in SYSTEM_INSTRUCTION
+    assert "Unassigned" in SYSTEM_INSTRUCTION
+    # Verify non-inference rule is explicit
+    assert "NEVER INFER RESPONSIBILITY FROM MESSAGE AUTHORSHIP" in SYSTEM_INSTRUCTION
+    # Verify questions are not decisions
+    assert "NEVER decisions" in SYSTEM_INSTRUCTION
+    # Verify casual praise is not approval
+    assert "DO NOT convert casual praise" in SYSTEM_INSTRUCTION
+    # Verify no fake scores
+    assert "confidence scores" in SYSTEM_INSTRUCTION
+
+
+def test_hinglish_multilingual_mock_extraction():
+    from unittest.mock import MagicMock
+    from app.services.gemini_service import extract_chunk
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = '''{
+        "id": "gemini-hinglish-1",
+        "title": "Site Inspection & Material Order",
+        "analyzedAt": "October 12, 2024",
+        "stats": {
+            "messagesAnalyzed": 4,
+            "participantsCount": 2,
+            "keyPointsCount": 1,
+            "actionsCount": 1,
+            "decisionsCount": 1,
+            "importantDatesCount": 1
+        },
+        "summary": "Client ne lobby layout approve kar diya hai. Rahul Friday tak revised drawings send karega.",
+        "keyPoints": [
+            {
+                "id": "kp-1",
+                "point": "Lobby layout client dwara approve ho gaya hai.",
+                "category": "Decision",
+                "source": {
+                    "id": "src-h1",
+                    "sourceType": "Chat Export",
+                    "sourceName": "WhatsApp Export",
+                    "date": "Oct 12",
+                    "sender": "Vikram",
+                    "messageRef": "Msg #2",
+                    "excerpt": "Client ne lobby layout approve kar diya hai"
+                }
+            }
+        ],
+        "actions": [
+            {
+                "id": "act-1",
+                "action": "Send revised drawings to client",
+                "responsiblePerson": "Rahul",
+                "deadline": "Friday",
+                "priority": "High",
+                "source": {
+                    "id": "src-h2",
+                    "sourceType": "Chat Export",
+                    "sourceName": "WhatsApp Export",
+                    "date": "Oct 12",
+                    "sender": "Vikram",
+                    "messageRef": "Msg #3",
+                    "excerpt": "Rahul, please drawings Friday tak bhej dena"
+                }
+            }
+        ],
+        "decisions": [
+            {
+                "id": "dec-1",
+                "decision": "Lobby layout approved",
+                "approvedBy": "Client",
+                "date": "Oct 12",
+                "source": {
+                    "id": "src-h1",
+                    "sourceType": "Chat Export",
+                    "sourceName": "WhatsApp Export",
+                    "date": "Oct 12",
+                    "sender": "Vikram",
+                    "messageRef": "Msg #2",
+                    "excerpt": "Client ne lobby layout approve kar diya hai"
+                }
+            }
+        ],
+        "importantDates": [
+            {
+                "id": "dt-1",
+                "title": "Drawings submission deadline",
+                "date": "Friday",
+                "significance": "Revised layout drawings for client sign-off",
+                "source": {
+                    "id": "src-h2",
+                    "sourceType": "Chat Export",
+                    "sourceName": "WhatsApp Export",
+                    "date": "Oct 12",
+                    "sender": "Vikram",
+                    "messageRef": "Msg #3",
+                    "excerpt": "Friday tak bhej dena"
+                }
+            }
+        ]
+    }'''
+    mock_client.models.generate_content.return_value = mock_response
+
+    sample_hinglish = """[10/12/2024, 11:00] Vikram: Morning team. Update kya hai?
+[10/12/2024, 11:05] Vikram: Client ne lobby layout approve kar diya hai.
+[10/12/2024, 11:07] Vikram: Rahul, please drawings Friday tak bhej dena.
+[10/12/2024, 11:08] Rahul: Theek hai, main Friday 5 PM se pehle bhej dunga."""
+
+    result = extract_chunk(mock_client, sample_hinglish)
+    assert result.id == "gemini-hinglish-1"
+    assert len(result.actions) == 1
+    assert result.actions[0].responsiblePerson == "Rahul"
+    assert result.actions[0].deadline == "Friday"
+    assert "Friday tak bhej dena" in result.actions[0].source.excerpt
+    assert len(result.decisions) == 1
+    assert result.decisions[0].approvedBy == "Client"
+
+
 if __name__ == "__main__":
     test_health_endpoint()
     test_analyze_empty_input()
@@ -388,4 +672,9 @@ if __name__ == "__main__":
     test_merge_and_deduplication()
     test_gemini_extraction_pipeline()
     test_key_points_cap_and_selection()
+    test_action_and_decision_consolidation_across_chunks()
+    test_summary_synthesis_sentence_deduplication()
+    test_empty_analysis_result_handling()
+    test_system_instruction_principles()
+    test_hinglish_multilingual_mock_extraction()
     print("All backend tests passed successfully!")

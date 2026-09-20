@@ -140,7 +140,14 @@ export default function TableView({ result, onOpenSource }: TableViewProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60">
-            {filteredRows.map((row) => (
+            {filteredRows.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-xs text-slate-400">
+                  No matching intelligence items found.
+                </td>
+              </tr>
+            ) : (
+              filteredRows.map((row) => (
               <tr
                 key={row.id}
                 className="hover:bg-slate-900/50 transition-colors group"
@@ -175,7 +182,7 @@ export default function TableView({ result, onOpenSource }: TableViewProps) {
                   </button>
                 </td>
               </tr>
-            ))}
+            )))}
           </tbody>
         </table>
       </div>
