@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 
 export default function PlansPage() {
-  const { user, currentPlan } = useAuth();
+  const { user, currentPlan, isLoading } = useAuth();
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
@@ -41,61 +41,73 @@ export default function PlansPage() {
         {/* Current Usage & Status Card (NO fake progress bars or counters) */}
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 sm:p-6 shadow-xl space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
-            <div className="flex items-center gap-3">
-              <div className={`h-10 w-10 rounded-xl flex items-center justify-center font-bold text-sm ${
-                currentPlan === 'PRO'
-                  ? 'bg-cyan-600/20 border border-cyan-500/30 text-cyan-400'
-                  : user
-                  ? 'bg-blue-600/20 border border-blue-500/30 text-blue-400'
-                  : 'bg-slate-800 border border-slate-700 text-slate-400'
-              }`}>
-                <ShieldCheck className="h-5 w-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-semibold text-white">Account Status</h2>
-                  <span
-                    className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                      currentPlan === 'PRO'
-                        ? 'border-cyan-500/30 bg-cyan-600/10 text-cyan-400'
-                        : user
-                        ? 'border-blue-500/30 bg-blue-600/10 text-blue-400'
-                        : 'border-slate-700 bg-slate-800 text-slate-300'
-                    }`}
-                  >
-                    {currentPlan === 'PRO'
-                      ? 'PRO PLAN — ACTIVE'
-                      : user
-                      ? 'FREE PLAN — ACTIVE'
-                      : 'GUEST ACCESS'}
-                  </span>
+            {isLoading ? (
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-slate-800 border border-slate-700/60 animate-pulse shrink-0" />
+                <div className="space-y-2">
+                  <div className="h-5 w-48 rounded bg-slate-800 animate-pulse" />
+                  <div className="h-3.5 w-64 rounded bg-slate-800/60 animate-pulse" />
                 </div>
-                <p className="text-xs text-slate-400">
-                  {currentPlan === 'PRO'
-                    ? 'Authenticated account with unlimited Pro capabilities.'
-                    : user
-                    ? 'Authenticated account with essential Project Memory capabilities.'
-                    : 'Ad-hoc analysis without an account.'}
-                </p>
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className={`h-10 w-10 rounded-xl flex items-center justify-center font-bold text-sm ${
+                    currentPlan === 'PRO'
+                      ? 'bg-cyan-600/20 border border-cyan-500/30 text-cyan-400'
+                      : user
+                      ? 'bg-blue-600/20 border border-blue-500/30 text-blue-400'
+                      : 'bg-slate-800 border border-slate-700 text-slate-400'
+                  }`}>
+                    <ShieldCheck className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-base font-semibold text-white">Account Status</h2>
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                          currentPlan === 'PRO'
+                            ? 'border-cyan-500/30 bg-cyan-600/10 text-cyan-400'
+                            : user
+                            ? 'border-blue-500/30 bg-blue-600/10 text-blue-400'
+                            : 'border-slate-700 bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        {currentPlan === 'PRO'
+                          ? 'PRO PLAN — ACTIVE'
+                          : user
+                          ? 'FREE PLAN — ACTIVE'
+                          : 'GUEST ACCESS'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {currentPlan === 'PRO'
+                        ? 'Authenticated account with unlimited Pro capabilities.'
+                        : user
+                        ? 'Authenticated account with essential Project Memory capabilities.'
+                        : 'Ad-hoc analysis without an account.'}
+                    </p>
+                  </div>
+                </div>
 
-            {/* Quick Action CTA for Guests */}
-            {!user && (
-              <div className="flex flex-wrap items-center gap-2 pt-1 sm:pt-0">
-                <Link
-                  href="/login"
-                  className="px-3.5 py-1.5 rounded-xl border border-slate-700 bg-slate-800 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition-colors"
-                >
-                  Log In
-                </Link>
-                <Link
-                  href="/signup"
-                  className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white shadow-sm shadow-blue-500/20 transition-all"
-                >
-                  Sign Up Free
-                </Link>
-              </div>
+                {/* Quick Action CTA for Guests */}
+                {!user && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1 sm:pt-0">
+                    <Link
+                      href="/login"
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-700 bg-slate-800 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition-colors"
+                    >
+                      Log In
+                    </Link>
+                    <Link
+                      href="/signup"
+                      className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white shadow-sm shadow-blue-500/20 transition-all"
+                    >
+                      Sign Up Free
+                    </Link>
+                  </div>
+                )}
+              </>
             )}
           </div>
 

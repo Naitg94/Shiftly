@@ -36,23 +36,41 @@ class Settings:
     PREVIEW_MODE: bool = os.getenv("PREVIEW_MODE", "true").lower() in ("true", "1", "yes")
     PREVIEW_ENTITLEMENT: str = os.getenv("PREVIEW_ENTITLEMENT", "PRO").upper()
 
-    # Private Lifetime Pro Entitlement (Comma-separated Supabase User UUIDs)
-    # Strictly server-side; NEVER expose to frontend or NEXT_PUBLIC_* variables.
+    # Private Lifetime Pro Entitlement (Strictly server-side; NEVER expose to frontend or NEXT_PUBLIC_* variables)
+    DESIGNATED_PRO_USER_IDS: List[str] = ["53d108fa-89fb-497b-92e6-ee67c6f7b7ce"]
+    DESIGNATED_PRO_EMAILS: List[str] = ["goyalnait678@gmail.com"]
     PRIVATE_PRO_USER_IDS_RAW: str = os.getenv("PRIVATE_PRO_USER_IDS", "")
+    PRIVATE_PRO_EMAILS_RAW: str = os.getenv("PRIVATE_PRO_EMAILS", "")
 
     @property
     def private_pro_user_ids(self) -> List[str]:
-        return [uid.strip() for uid in self.PRIVATE_PRO_USER_IDS_RAW.split(",") if uid.strip()]
+        configured = [uid.strip() for uid in self.PRIVATE_PRO_USER_IDS_RAW.split(",") if uid.strip()]
+        combined = list(dict.fromkeys(self.DESIGNATED_PRO_USER_IDS + configured))
+        return combined
+
+    @property
+    def private_pro_emails(self) -> List[str]:
+        configured = [email.strip().lower() for email in self.PRIVATE_PRO_EMAILS_RAW.split(",") if email.strip()]
+        combined = list(dict.fromkeys(self.DESIGNATED_PRO_EMAILS + configured))
+        return combined
 
     # CORS
-    CORS_ORIGINS_RAW: str = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+    CORS_ORIGINS_RAW: str = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,https://shiftly-woad.vercel.app"
+    )
     
     @property
     def cors_origins(self) -> List[str]:
         origins = [origin.strip() for origin in self.CORS_ORIGINS_RAW.split(",") if origin.strip()]
+        # Always ensure production frontend and localhost are included
+        defaults = ["http://localhost:3000", "https://shiftly-woad.vercel.app"]
+        for d in defaults:
+            if d not in origins:
+                origins.append(d)
         # Never allow wildcard '*' with allow_credentials=True
         filtered = [o for o in origins if o != "*"]
-        return filtered if filtered else ["http://localhost:3000"]
+        return filtered if filtered else ["http://localhost:3000", "https://shiftly-woad.vercel.app"]
 
     # Gemini
     GEMINI_API_KEY: str | None = os.getenv("GEMINI_API_KEY")

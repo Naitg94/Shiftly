@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from pydantic import BaseModel
 from app.core.config import settings
 from app.core.auth import AuthenticatedUser
@@ -173,15 +173,28 @@ def get_user_subscription(user_id: Optional[str]) -> Optional[Dict[str, Any]]:
     return None
 
 
-def is_private_pro_user(user_id: Optional[str]) -> bool:
+def is_private_pro_user(user_or_id: Optional[Union[AuthenticatedUser, str]]) -> bool:
     """
     Determines whether a user has the private lifetime Pro entitlement.
-    Derived strictly server-side from the verified Supabase Auth user UUID.
-    Client-side parameters, emails, or usernames are NEVER consulted.
+    Derived strictly server-side from the verified Supabase Auth user record.
+    Client-side parameters, headers, or editable user_metadata are NEVER consulted.
     """
-    if not user_id:
+    if not user_or_id:
         return False
-    return user_id in settings.private_pro_user_ids
+
+    if isinstance(user_or_id, str):
+        return user_or_id in settings.private_pro_user_ids
+
+    # For AuthenticatedUser objects:
+    # 1. Match verified user UUID
+    if user_or_id.id and user_or_id.id in settings.private_pro_user_ids:
+        return True
+
+    # 2. Match verified email returned by Supabase Auth /auth/v1/user
+    if user_or_id.email and user_or_id.email.strip().lower() in settings.private_pro_emails:
+        return True
+
+    return False
 
 
 def resolve_entitlement(user: Optional[AuthenticatedUser]) -> UserEntitlement:
@@ -214,7 +227,7 @@ def resolve_entitlement(user: Optional[AuthenticatedUser]) -> UserEntitlement:
             )
 
     # 2. Check for private lifetime Pro entitlement
-    if is_private_pro_user(user.id):
+    if is_private_pro_user(user):
         return UserEntitlement(
             public_plan=PlanTier.PRO,
             effective_plan=PlanTier.PRO,

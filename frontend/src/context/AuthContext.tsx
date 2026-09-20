@@ -39,8 +39,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (res?.plan?.id) {
         setCurrentPlan(res.plan.id.toUpperCase() as 'FREE' | 'PLUS' | 'PRO');
       }
-    } catch {
-      if (session?.user) {
+    } catch (err) {
+      console.warn('Failed to retrieve authoritative user plan from backend:', err);
+      // Fallback for authenticated users if backend is unreachable
+      if (session?.user || user) {
         setCurrentPlan('FREE');
       } else {
         setCurrentPlan('GUEST');
@@ -49,8 +51,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    let isMounted = true;
+
     // 1. Check initial active session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!isMounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user && session?.access_token) {
@@ -58,13 +63,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setCurrentPlan('GUEST');
       }
-      setIsLoading(false);
+      if (isMounted) {
+        setIsLoading(false);
+      }
     });
 
     // 2. Listen for auth state changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!isMounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user && session?.access_token) {
@@ -72,10 +80,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setCurrentPlan('GUEST');
       }
-      setIsLoading(false);
+      if (isMounted) {
+        setIsLoading(false);
+      }
     });
 
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
     };
   }, []);

@@ -455,3 +455,34 @@ def test_15_no_private_uuid_exposed_to_frontend():
     # Check /api/account/summary response does not contain other users' UUIDs
     res_summary = normal_client.get("/api/account/summary")
     assert PRO_USER_UUID not in res_summary.text
+
+
+# =========================================================================
+# TEST 16: DESIGNATED ACCOUNT RESOLVES TO PRO WITHOUT ENV VAR
+# =========================================================================
+
+def test_16_designated_account_resolves_to_pro_without_env_var():
+    """TEST 16: Designated account resolves to PRO even when runtime env vars are empty."""
+    with patch.object(settings, "PRIVATE_PRO_USER_IDS_RAW", ""), patch.object(settings, "PRIVATE_PRO_EMAILS_RAW", ""):
+        # 1. Full designated user (matching production UUID and email)
+        user = AuthenticatedUser(id="53d108fa-89fb-497b-92e6-ee67c6f7b7ce", email="goyalnait678@gmail.com")
+        ent = resolve_entitlement(user)
+        assert ent.public_plan == PlanTier.PRO
+        assert ent.effective_plan == PlanTier.PRO
+        assert ent.lifetime is True
+        assert resolve_current_plan(user) == PlanTier.PRO
+
+        # 2. Designated email with different UUID (e.g. if auth provider regenerates ID)
+        user_email = AuthenticatedUser(id="regenerated-uuid-123", email="goyalnait678@gmail.com")
+        assert resolve_entitlement(user_email).public_plan == PlanTier.PRO
+
+        # 3. Designated UUID with missing or masked email
+        user_uuid = AuthenticatedUser(id="53d108fa-89fb-497b-92e6-ee67c6f7b7ce", email=None)
+        assert resolve_entitlement(user_uuid).public_plan == PlanTier.PRO
+
+        # 4. Normal user with empty env vars must remain FREE
+        normal_user = AuthenticatedUser(id="normal-user-uuid", email="someoneelse@example.com")
+        assert resolve_entitlement(normal_user).public_plan == PlanTier.FREE
+
+        # 5. Unauthenticated user must remain GUEST
+        assert resolve_entitlement(None).public_plan == PlanTier.GUEST

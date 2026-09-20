@@ -14,7 +14,7 @@ interface NavbarProps {
 }
 
 export default function Navbar({ activeTab, onTabChange, onReset }: NavbarProps) {
-  const { user, username, signOut, currentPlan } = useAuth();
+  const { user, username, signOut, currentPlan, isLoading } = useAuth();
   const router = useRouter();
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -61,33 +61,40 @@ export default function Navbar({ activeTab, onTabChange, onReset }: NavbarProps)
               <span className="hidden md:inline-block text-[10px] font-medium uppercase tracking-wider rounded bg-slate-800 px-1.5 py-0.5 text-slate-400">
                 Beta
               </span>
-              <Link
-                href="/plans"
-                className={`inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 rounded-full border text-[10px] font-bold tracking-wider transition-all cursor-pointer ${
-                  currentPlan === 'PRO'
-                    ? 'border-cyan-500/40 bg-gradient-to-r from-blue-600/20 to-cyan-500/20 text-cyan-300 hover:text-cyan-200 hover:border-cyan-400 shadow-sm shadow-cyan-500/10'
-                    : currentPlan === 'PLUS'
-                    ? 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:text-amber-200 hover:border-amber-400 shadow-sm shadow-amber-500/10'
-                    : currentPlan === 'FREE'
-                    ? 'border-blue-500/30 bg-blue-500/10 text-blue-400 hover:text-blue-300 hover:border-blue-500/50'
-                    : 'border-slate-700 bg-slate-800 text-slate-300 hover:text-white hover:border-slate-600'
-                }`}
-                title={`Current plan: ${currentPlan}. Click to view plans.`}
-                aria-label={`Plan: ${currentPlan}`}
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    currentPlan === 'PRO'
-                      ? 'bg-cyan-400 animate-pulse'
-                      : currentPlan === 'PLUS'
-                      ? 'bg-amber-400'
-                      : currentPlan === 'FREE'
-                      ? 'bg-blue-400'
-                      : 'bg-slate-400'
-                  }`}
+              {isLoading ? (
+                <div
+                  className="h-5 w-14 rounded-full bg-slate-800/80 border border-slate-700/50 animate-pulse shrink-0"
+                  aria-hidden="true"
                 />
-                <span>{currentPlan}</span>
-              </Link>
+              ) : (
+                <Link
+                  href="/plans"
+                  className={`inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 rounded-full border text-[10px] font-bold tracking-wider transition-all cursor-pointer ${
+                    currentPlan === 'PRO'
+                      ? 'border-cyan-500/40 bg-gradient-to-r from-blue-600/20 to-cyan-500/20 text-cyan-300 hover:text-cyan-200 hover:border-cyan-400 shadow-sm shadow-cyan-500/10'
+                      : currentPlan === 'PLUS'
+                      ? 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:text-amber-200 hover:border-amber-400 shadow-sm shadow-amber-500/10'
+                      : currentPlan === 'FREE'
+                      ? 'border-blue-500/30 bg-blue-500/10 text-blue-400 hover:text-blue-300 hover:border-blue-500/50'
+                      : 'border-slate-700 bg-slate-800 text-slate-300 hover:text-white hover:border-slate-600'
+                  }`}
+                  title={`Current plan: ${currentPlan}. Click to view plans.`}
+                  aria-label={`Plan: ${currentPlan}`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      currentPlan === 'PRO'
+                        ? 'bg-cyan-400 animate-pulse'
+                        : currentPlan === 'PLUS'
+                        ? 'bg-amber-400'
+                        : currentPlan === 'FREE'
+                        ? 'bg-blue-400'
+                        : 'bg-slate-400'
+                    }`}
+                  />
+                  <span>{currentPlan}</span>
+                </Link>
+              )}
             </div>
             <p className="text-[11px] text-slate-400 leading-none hidden lg:block">Find what matters.</p>
           </div>
@@ -136,7 +143,11 @@ export default function Navbar({ activeTab, onTabChange, onReset }: NavbarProps)
           </nav>
 
           {/* User Identity or Guest Actions */}
-          {user ? (
+          {isLoading ? (
+            <div className="flex items-center gap-1 sm:gap-2 pl-1 sm:pl-2.5 border-l border-slate-800">
+              <div className="h-7 w-20 sm:w-28 rounded-lg bg-slate-800/60 border border-slate-800/60 animate-pulse shrink-0" />
+            </div>
+          ) : user ? (
             <div className="flex items-center gap-1 sm:gap-2 pl-1 sm:pl-2.5 border-l border-slate-800">
               <button
                 onClick={() => setIsSettingsOpen(true)}
