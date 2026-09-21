@@ -25,13 +25,14 @@ export interface StoredAnalysisSummary {
   actions_count: number;
   decisions_count: number;
   important_dates_count: number;
+  pending_decisions_count: number;
 }
 
 export interface SearchResultItem {
   id: string;
   analysis_id: string;
   analysis_title: string;
-  item_type: "Key Point" | "Action" | "Decision" | "Date" | "Summary";
+  item_type: "Key Point" | "Action" | "Decision" | "Date" | "Summary" | "Pending Decision";
   content: string;
   details?: string | null;
   source_reference?: SourceReference | null;

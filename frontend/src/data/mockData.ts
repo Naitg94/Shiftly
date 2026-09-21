@@ -28,6 +28,7 @@ export const MOCK_ANALYSIS_RESULT: ShiftlyAnalysisResult = {
     actionsCount: 4,
     decisionsCount: 3,
     importantDatesCount: 4,
+    pendingDecisionsCount: 0,
   },
   summary:
     "The team resolved the envelope glazing delay by upgrading to triple-pane alternate AGC-400 (+ $14.2k) with delivery locked for November 3. Foundation slab pour is scheduled for October 15 pending column C-4 rebar remediation and structural sign-off on October 14. Crane mobilization is targeted for October 24 following municipal traffic filings.",
@@ -286,4 +287,5 @@ export const MOCK_ANALYSIS_RESULT: ShiftlyAnalysisResult = {
       },
     },
   ],
+  pendingDecisions: [],
 };

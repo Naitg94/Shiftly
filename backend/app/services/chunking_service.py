@@ -6,6 +6,7 @@ from app.models.schemas import (
     ActionItem,
     DecisionItem,
     ImportantDateItem,
+    PendingDecisionItem,
     AnalysisStats,
 )
 
@@ -216,6 +217,191 @@ def select_meaningful_key_points(key_points: List[KeyPointItem]) -> List[KeyPoin
     return meaningful
 
 
+MONTH_NAMES = {
+    "jan": 1, "january": 1,
+    "feb": 2, "february": 2,
+    "mar": 3, "march": 3,
+    "apr": 4, "april": 4,
+    "may": 5,
+    "jun": 6, "june": 6,
+    "jul": 7, "july": 7,
+    "aug": 8, "august": 8,
+    "sep": 9, "sept": 9, "september": 9,
+    "oct": 10, "october": 10,
+    "nov": 11, "november": 11,
+    "dec": 12, "december": 12,
+}
+
+
+def _canonical_date_key(date_str: str) -> str:
+    """Normalizes date string to a canonical representation (MM-DD) for deduplication."""
+    if not date_str:
+        return ""
+    d_clean = date_str.lower().strip()
+    m_iso = re.search(r"\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b", d_clean)
+    if m_iso:
+        return f"{int(m_iso.group(2)):02d}-{int(m_iso.group(3)):02d}"
+
+    m_us = re.search(r"\b(\d{1,2})[/](\d{1,2})\b", d_clean)
+    if m_us:
+        return f"{int(m_us.group(1)):02d}-{int(m_us.group(2)):02d}"
+
+    for m_name, m_num in MONTH_NAMES.items():
+        m1 = re.search(rf"\b{m_name}\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?\b", d_clean)
+        if m1:
+            return f"{m_num:02d}-{int(m1.group(1)):02d}"
+        m2 = re.search(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+{m_name}\.?\b", d_clean)
+        if m2:
+            return f"{m_num:02d}-{int(m2.group(1)):02d}"
+
+    return _normalize_key(date_str)
+
+
+def deduplicate_important_dates(dates: List[ImportantDateItem]) -> List[ImportantDateItem]:
+    """
+    Deduplicates important dates semantically.
+    Multiple mentions of the same milestone (e.g. 'September 20 — Final project submission date'
+    and 'September 20 — Project Submission Target') are merged into ONE date item.
+    """
+    if not dates:
+        return []
+
+    merged: List[ImportantDateItem] = []
+    for dt in dates:
+        dt_canon = _canonical_date_key(dt.date)
+        matched = None
+
+        for existing in merged:
+            ex_canon = _canonical_date_key(existing.date)
+            date_matches = (dt_canon and ex_canon and dt_canon == ex_canon) or (
+                _normalize_key(dt.date) == _normalize_key(existing.date)
+            )
+
+            if date_matches:
+                t1_tokens = _word_tokens(dt.title)
+                t2_tokens = _word_tokens(existing.title)
+                common = t1_tokens.intersection(t2_tokens)
+                milestone_words = {
+                    "submission", "deadline", "target", "inspection", "meeting",
+                    "delivery", "completion", "launch", "signoff", "review",
+                    "kickoff", "phase", "report", "presentation", "framing", "drawings"
+                }
+                if (
+                    common.intersection(milestone_words)
+                    or (t1_tokens and t2_tokens and len(common) / min(len(t1_tokens), len(t2_tokens)) >= 0.40)
+                    or _is_near_duplicate(dt.title, [existing.title], threshold=0.55)
+                ):
+                    matched = existing
+                    break
+            elif _normalize_key(dt.title) == _normalize_key(existing.title):
+                matched = existing
+                break
+
+        if matched:
+            if len(dt.title) > len(matched.title):
+                matched.title = dt.title
+            if len(dt.significance or "") > len(matched.significance or ""):
+                matched.significance = dt.significance
+            if dt.source and dt.source.excerpt and (not matched.source or not matched.source.excerpt or len(dt.source.excerpt) > len(matched.source.excerpt)):
+                matched.source = dt.source
+        else:
+            merged.append(dt)
+
+    for idx, item in enumerate(merged, start=1):
+        item.id = f"dt-{idx}"
+
+    return merged
+
+
+def filter_spurious_approvals(decisions: List[DecisionItem]) -> List[DecisionItem]:
+    """
+    Filters out spurious approvals/decisions that are trivial, casual banter, or pending statements.
+    Examples rejected:
+    - 'Coffee approved.'
+    - 'Lunch approved.'
+    - 'Hold signage until branding confirms' (unresolved pending state, not a decision/approval)
+    """
+    cleaned: List[DecisionItem] = []
+    spurious_keywords = {
+        "coffee", "lunch", "dinner", "pizza", "burger", "snack", "tea", "breakfast", "drinks"
+    }
+
+    for dec in decisions:
+        text_lower = dec.decision.lower().strip()
+        words = set(re.findall(r"\b\w+\b", text_lower))
+
+        # Reject trivial food/beverage approvals
+        if words.intersection(spurious_keywords):
+            if any(w in words for w in ["approved", "approval", "ordered", "order"]):
+                continue
+
+        # Reject pending/hold statements that got erroneously classified as decisions
+        if (
+            text_lower.startswith("hold ")
+            or "approval pending" in text_lower
+            or "pending approval" in text_lower
+            or "awaiting approval" in text_lower
+            or "pending confirmation" in text_lower
+            or "awaiting confirmation" in text_lower
+            or "until branding confirms" in text_lower
+            or "pending client confirmation" in text_lower
+        ):
+            continue
+
+        cleaned.append(dec)
+
+    return cleaned
+
+
+def resolve_decision_lifecycle(
+    decisions: List[DecisionItem],
+    pending_decisions: List[PendingDecisionItem],
+) -> List[PendingDecisionItem]:
+    """
+    Enforces the Decision Lifecycle:
+    Discussion -> Pending Decision -> Decision -> Approval -> Action -> Completion.
+    If a decision was pending earlier (e.g. 'Branding team hasn't confirmed signage wording')
+    but was resolved later in the same communication (e.g. 'Branding confirmed Riverside Technology Group for signage'),
+    the resolved state takes precedence: the Pending Decision is resolved and removed.
+    """
+    if not pending_decisions or not decisions:
+        return pending_decisions
+
+    STOP_WORDS = {
+        "decision", "pending", "selection", "between", "choice", "awaiting",
+        "client", "team", "confirmation", "confirm", "confirmed", "final", "the",
+        "and", "for", "with", "from", "approval", "approved", "require", "required"
+    }
+
+    resolved_pending_ids = set()
+
+    for pd in pending_decisions:
+        pd_tokens = _word_tokens(pd.decision) - STOP_WORDS
+        if not pd_tokens:
+            continue
+
+        for dec in decisions:
+            dec_tokens = _word_tokens(dec.decision) - STOP_WORDS
+            if not dec_tokens:
+                continue
+
+            common = pd_tokens.intersection(dec_tokens)
+            if common:
+                domain_nouns = {
+                    "signage", "wording", "cladding", "flooring", "counter", "reception",
+                    "entrance", "lighting", "glazing", "facade", "hvac", "permit",
+                    "drawing", "drawings", "layout", "material", "palette"
+                }
+                has_domain_match = bool(common.intersection(domain_nouns))
+                overlap_ratio = len(common) / min(len(pd_tokens), len(dec_tokens))
+
+                if has_domain_match or overlap_ratio >= 0.50:
+                    resolved_pending_ids.add(pd.id)
+                    break
+
+    return [pd for pd in pending_decisions if pd.id not in resolved_pending_ids]
+
+
 def select_top_key_points(key_points: List[KeyPointItem], max_points: Optional[int] = None) -> List[KeyPointItem]:
     """Deprecated alias for select_meaningful_key_points. Retains all meaningful points without arbitrary cap."""
     return select_meaningful_key_points(key_points)
@@ -226,19 +412,36 @@ def merge_analysis_results(results: List[ShiftlyAnalysisResult]) -> ShiftlyAnaly
     Merges multiple ShiftlyAnalysisResult objects into a single cohesive result,
     deduplicating key points, actions, decisions, and dates using normalized
     string matching and deterministic lexical overlap similarity.
+    Enforces the Decision Lifecycle and filters spurious approvals.
     Retains all meaningful keyPoints without arbitrary caps.
     """
     if not results:
         raise ValueError("Cannot merge empty results list.")
 
     if len(results) == 1:
-        # Re-verify and sync stats with extracted list lengths
         res = results[0]
         res.keyPoints = select_meaningful_key_points(res.keyPoints)
+        res.decisions = filter_spurious_approvals(res.decisions)
+        res.pendingDecisions = resolve_decision_lifecycle(res.decisions, res.pendingDecisions)
+        res.importantDates = deduplicate_important_dates(res.importantDates)
+
+        # Re-index
+        for idx, k in enumerate(res.keyPoints, start=1):
+            k.id = f"kp-{idx}"
+        for idx, a in enumerate(res.actions, start=1):
+            a.id = f"act-{idx}"
+        for idx, d in enumerate(res.decisions, start=1):
+            d.id = f"dec-{idx}"
+        for idx, dt in enumerate(res.importantDates, start=1):
+            dt.id = f"dt-{idx}"
+        for idx, p in enumerate(res.pendingDecisions, start=1):
+            p.id = f"pd-{idx}"
+
         res.stats.keyPointsCount = len(res.keyPoints)
         res.stats.actionsCount = len(res.actions)
         res.stats.decisionsCount = len(res.decisions)
         res.stats.importantDatesCount = len(res.importantDates)
+        res.stats.pendingDecisionsCount = len(res.pendingDecisions)
         return res
 
     base = results[0]
@@ -256,7 +459,6 @@ def merge_analysis_results(results: List[ShiftlyAnalysisResult]) -> ShiftlyAnaly
         for act in r.actions:
             matched_act = None
             for existing in merged_actions:
-                # Direct match or high token overlap on action task
                 if _normalize_key(act.action) == _normalize_key(existing.action) or (
                     _word_tokens(act.action) and _word_tokens(existing.action) and
                     len(_word_tokens(act.action).intersection(_word_tokens(existing.action))) /
@@ -266,16 +468,12 @@ def merge_analysis_results(results: List[ShiftlyAnalysisResult]) -> ShiftlyAnaly
                     break
 
             if matched_act:
-                # Consolidate: if new act has assigned person and existing was Unassigned, update
                 if (not matched_act.responsiblePerson or matched_act.responsiblePerson in ("Unassigned", "Unknown")) and (act.responsiblePerson and act.responsiblePerson not in ("Unassigned", "Unknown")):
                     matched_act.responsiblePerson = act.responsiblePerson
-                # Consolidate: if new act has explicit deadline and existing didn't, update
                 if not matched_act.deadline and act.deadline:
                     matched_act.deadline = act.deadline
-                # Consolidate: priority
                 if act.priority == "High":
                     matched_act.priority = "High"
-                # Consolidate source if new one has longer/better excerpt
                 if act.source and act.source.excerpt and (not matched_act.source or not matched_act.source.excerpt or len(act.source.excerpt) > len(matched_act.source.excerpt)):
                     matched_act.source = act.source
             else:
@@ -307,30 +505,44 @@ def merge_analysis_results(results: List[ShiftlyAnalysisResult]) -> ShiftlyAnaly
                 dec.id = f"dec-{len(merged_decisions) + 1}"
                 merged_decisions.append(dec)
 
+    # Filter spurious approvals from decisions
+    merged_decisions = filter_spurious_approvals(merged_decisions)
+
     # Deduplicate & consolidate Important Dates across chunks
-    merged_dates: List[ImportantDateItem] = []
+    all_raw_dates: List[ImportantDateItem] = []
     for r in results:
-        for dt in r.importantDates:
-            matched_dt = None
-            norm_date = _normalize_key(dt.date)
-            norm_title = _normalize_key(dt.title)
-            for existing in merged_dates:
-                if norm_date and norm_date == _normalize_key(existing.date):
-                    if norm_title == _normalize_key(existing.title) or _is_near_duplicate(dt.title, [existing.title], threshold=0.60):
-                        matched_dt = existing
-                        break
-                elif norm_title and norm_title == _normalize_key(existing.title):
-                    matched_dt = existing
+        all_raw_dates.extend(r.importantDates)
+    merged_dates = deduplicate_important_dates(all_raw_dates)
+
+    # Deduplicate & consolidate Pending Decisions across chunks
+    merged_pending: List[PendingDecisionItem] = []
+    for r in results:
+        for pd in r.pendingDecisions:
+            matched_pd = None
+            for existing in merged_pending:
+                if _normalize_key(pd.decision) == _normalize_key(existing.decision) or (
+                    _word_tokens(pd.decision) and _word_tokens(existing.decision) and
+                    len(_word_tokens(pd.decision).intersection(_word_tokens(existing.decision))) /
+                    len(_word_tokens(pd.decision).union(_word_tokens(existing.decision))) >= 0.70
+                ):
+                    matched_pd = existing
                     break
 
-            if matched_dt:
-                if len(dt.significance or "") > len(matched_dt.significance or ""):
-                    matched_dt.significance = dt.significance
-                if dt.source and dt.source.excerpt and (not matched_dt.source or not matched_dt.source.excerpt or len(dt.source.excerpt) > len(matched_dt.source.excerpt)):
-                    matched_dt.source = dt.source
+            if matched_pd:
+                if pd.source and pd.source.excerpt and (not matched_pd.source or not matched_pd.source.excerpt or len(pd.source.excerpt) > len(matched_pd.source.excerpt)):
+                    matched_pd.source = pd.source
             else:
-                dt.id = f"dt-{len(merged_dates) + 1}"
-                merged_dates.append(dt)
+                pd.id = f"pd-{len(merged_pending) + 1}"
+                merged_pending.append(pd)
+
+    # Enforce Decision Lifecycle across merged decisions and pending decisions
+    merged_pending = resolve_decision_lifecycle(merged_decisions, merged_pending)
+
+    # Re-index all IDs sequentially
+    for idx, d in enumerate(merged_decisions, start=1):
+        d.id = f"dec-{idx}"
+    for idx, p in enumerate(merged_pending, start=1):
+        p.id = f"pd-{idx}"
 
     total_msgs = sum(r.stats.messagesAnalyzed for r in results)
     max_participants = max((r.stats.participantsCount for r in results), default=2)
@@ -342,6 +554,7 @@ def merge_analysis_results(results: List[ShiftlyAnalysisResult]) -> ShiftlyAnaly
         actionsCount=len(merged_actions),
         decisionsCount=len(merged_decisions),
         importantDatesCount=len(merged_dates),
+        pendingDecisionsCount=len(merged_pending),
     )
 
     # Cohesive synthesized summary from all chunks (deduplicating identical/near-duplicate sentences)
@@ -363,4 +576,5 @@ def merge_analysis_results(results: List[ShiftlyAnalysisResult]) -> ShiftlyAnaly
         actions=merged_actions,
         decisions=merged_decisions,
         importantDates=merged_dates,
+        pendingDecisions=merged_pending,
     )

@@ -1,7 +1,14 @@
 import logging
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
-from app.db.models import Project, ProjectCreate, StoredAnalysisSummary, SearchResponse
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from app.db.models import (
+    Project,
+    ProjectCreate,
+    ProjectUpdate,
+    AnalysisUpdate,
+    StoredAnalysisSummary,
+    SearchResponse,
+)
 from app.db.repository import (
     memory_repo,
     ProjectNotFoundError,
@@ -153,6 +160,37 @@ def get_project(
         handle_db_exception(e, "get_project")
 
 
+@router.patch(
+    "/projects/{project_id}",
+    response_model=Project,
+    summary="Update Project Name",
+    description="Renames an existing project without altering its ID or attached analyses.",
+)
+def update_project(
+    project_id: str = Path(..., pattern=SAFE_ID_PATTERN, description="Safe alphanumeric project identifier"),
+    payload: ProjectUpdate = ...,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    _rate_limit: bool = Depends(rate_limit_projects_write),
+) -> Project:
+    logger.info("project_rename_started project_id=%s user_id=%s", project_id, current_user.id)
+    try:
+        updated = memory_repo.update_project_name(
+            project_id=project_id,
+            name=payload.name,
+            user_id=current_user.id,
+            user_token=current_user.token,
+        )
+        logger.info("project_rename_completed project_id=%s user_id=%s", project_id, current_user.id)
+        return updated
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(ve),
+        )
+    except Exception as e:
+        handle_db_exception(e, "update_project")
+
+
 @router.delete(
     "/projects/{project_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -241,6 +279,57 @@ def get_analysis(
         return result
     except Exception as e:
         handle_db_exception(e, "get_analysis")
+
+
+@router.get(
+    "/projects/{project_id}/intelligence",
+    response_model=ShiftlyAnalysisResult,
+    summary="Get Aggregated Project Intelligence",
+    description="Returns the accumulated, deduplicated intelligence for all analyses in a project.",
+)
+def get_project_intelligence(
+    project_id: str = Path(..., pattern=SAFE_ID_PATTERN, description="Safe alphanumeric project identifier"),
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> ShiftlyAnalysisResult:
+    try:
+        return memory_repo.get_project_aggregated_intelligence(
+            project_id, user_id=current_user.id, user_token=current_user.token
+        )
+    except Exception as e:
+        handle_db_exception(e, "get_project_intelligence")
+
+
+@router.patch(
+    "/projects/{project_id}/analyses/{analysis_id}",
+    response_model=StoredAnalysisSummary,
+    summary="Update Analysis Title",
+    description="Renames an existing analysis title without altering its intelligence or source evidence.",
+)
+def update_analysis(
+    project_id: str = Path(..., pattern=SAFE_ID_PATTERN, description="Safe alphanumeric project identifier"),
+    analysis_id: str = Path(..., pattern=SAFE_ID_PATTERN, description="Safe alphanumeric analysis identifier"),
+    payload: AnalysisUpdate = ...,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    _rate_limit: bool = Depends(rate_limit_projects_write),
+) -> StoredAnalysisSummary:
+    logger.info("analysis_rename_started project_id=%s analysis_id=%s user_id=%s", project_id, analysis_id, current_user.id)
+    try:
+        updated = memory_repo.update_analysis_title(
+            project_id=project_id,
+            analysis_id=analysis_id,
+            title=payload.title,
+            user_id=current_user.id,
+            user_token=current_user.token,
+        )
+        logger.info("analysis_rename_completed project_id=%s analysis_id=%s user_id=%s", project_id, analysis_id, current_user.id)
+        return updated
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(ve),
+        )
+    except Exception as e:
+        handle_db_exception(e, "update_analysis")
 
 
 @router.delete(

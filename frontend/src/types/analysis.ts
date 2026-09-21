@@ -1,4 +1,4 @@
-﻿export interface SourceReference {
+export interface SourceReference {
   id: string;
   sourceType: "Chat Export" | "Email Thread" | "Meeting Transcript" | "Document";
   sourceName: string;
@@ -32,6 +32,13 @@ export interface DecisionItem {
   source: SourceReference;
 }
 
+export interface PendingDecisionItem {
+  id: string;
+  decision: string;
+  status: "Pending";
+  source: SourceReference;
+}
+
 export interface ImportantDateItem {
   id: string;
   title: string;
@@ -51,10 +58,12 @@ export interface ShiftlyAnalysisResult {
     actionsCount: number;
     decisionsCount: number;
     importantDatesCount: number;
+    pendingDecisionsCount: number;
   };
   summary: string;
   keyPoints: KeyPointItem[];
   actions: ActionItem[];
   decisions: DecisionItem[];
   importantDates: ImportantDateItem[];
+  pendingDecisions: PendingDecisionItem[];
 }

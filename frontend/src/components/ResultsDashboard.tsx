@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   ShiftlyAnalysisResult,
   SourceReference,
@@ -24,6 +24,9 @@ import {
   X,
   ArrowLeft,
   Plus,
+  Clock,
+  Pencil,
+  Search,
 } from "lucide-react";
 import KeyPointsView from "./views/KeyPointsView";
 import SummaryView from "./views/SummaryView";
@@ -32,7 +35,7 @@ import StructuredView from "./views/StructuredView";
 import SourceModal from "./SourceModal";
 import Link from "next/link";
 import { Project } from "@/types/project";
-import { fetchProjects, createProject, saveAnalysisToProject, ApiError } from "@/lib/api";
+import { fetchProjects, createProject, updateAnalysisTitle, saveAnalysisToProject, ApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
 interface ResultsDashboardProps {
@@ -40,6 +43,8 @@ interface ResultsDashboardProps {
   onReset: () => void;
   onBackToMemory?: () => void;
   isFromMemory?: boolean;
+  projectId?: string;
+  onUpdateTitle?: (newTitle: string) => void;
 }
 
 type ViewMode = "keypoints" | "summary" | "table" | "structured";
@@ -49,10 +54,39 @@ export default function ResultsDashboard({
   onReset,
   onBackToMemory,
   isFromMemory = false,
+  projectId,
+  onUpdateTitle,
 }: ResultsDashboardProps) {
   const { user } = useAuth();
   const [activeView, setActiveView] = useState<ViewMode>("structured");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedSource, setSelectedSource] = useState<SourceReference | null>(null);
+
+  const handleTabChange = (tabId: ViewMode) => {
+    setActiveView(tabId);
+    setSearchQuery("");
+  };
+
+  const searchPlaceholder = useMemo(() => {
+    switch (activeView) {
+      case "structured":
+        return "Search structured intelligence...";
+      case "keypoints":
+        return "Search key points...";
+      case "summary":
+        return "Search summary...";
+      case "table":
+        return "Search table...";
+      default:
+        return "Search...";
+    }
+  }, [activeView]);
+
+  // Edit Analysis Title State
+  const [isEditTitleModalOpen, setIsEditTitleModalOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editTitleError, setEditTitleError] = useState<string | null>(null);
 
   // Save to Project State
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
@@ -69,16 +103,17 @@ export default function ResultsDashboard({
   const [newProjectName, setNewProjectName] = useState("");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
 
-  // Close save modal on Escape key & lock body scroll
-  const isAnySaveModalOpen = Boolean(isSaveModalOpen || isGuestSaveModalOpen);
+  // Close modals on Escape key & lock body scroll
+  const isAnyModalOpen = Boolean(isSaveModalOpen || isGuestSaveModalOpen || isEditTitleModalOpen);
   useEffect(() => {
-    if (!isAnySaveModalOpen) return;
+    if (!isAnyModalOpen) return;
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (isSaveModalOpen) setIsSaveModalOpen(false);
         if (isGuestSaveModalOpen) setIsGuestSaveModalOpen(false);
+        if (isEditTitleModalOpen) setIsEditTitleModalOpen(false);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -86,7 +121,43 @@ export default function ResultsDashboard({
       document.body.style.overflow = originalOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isAnySaveModalOpen, isSaveModalOpen, isGuestSaveModalOpen]);
+  }, [isAnyModalOpen, isSaveModalOpen, isGuestSaveModalOpen, isEditTitleModalOpen]);
+
+  const handleSaveTitle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!projectId || !result.id) return;
+    const trimmed = editTitle.trim();
+    if (!trimmed) {
+      setEditTitleError("Analysis title cannot be empty");
+      return;
+    }
+    if (trimmed.length > 200) {
+      setEditTitleError("Analysis title must not exceed 200 characters");
+      return;
+    }
+    if (/[\x00-\x1f]/.test(trimmed)) {
+      setEditTitleError("Analysis title contains invalid control characters");
+      return;
+    }
+    if (trimmed === result.title) {
+      setIsEditTitleModalOpen(false);
+      return;
+    }
+
+    setIsEditingTitle(true);
+    setEditTitleError(null);
+    try {
+      const updated = await updateAnalysisTitle(projectId, result.id, trimmed);
+      onUpdateTitle?.(updated.title);
+      setIsEditTitleModalOpen(false);
+    } catch (err: unknown) {
+      setEditTitleError(
+        err instanceof Error ? err.message : "Failed to update analysis title"
+      );
+    } finally {
+      setIsEditingTitle(false);
+    }
+  };
 
   const tabs: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
     { id: "structured", label: "Structured", icon: <LayoutGrid className="h-4 w-4" /> },
@@ -185,9 +256,25 @@ export default function ResultsDashboard({
             <span className="text-xs text-slate-500">&bull;</span>
             <span className="text-xs text-slate-400">{result.analyzedAt}</span>
           </div>
-          <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-            {result.title}
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+              {result.title}
+            </h2>
+            {isFromMemory && projectId && (
+              <button
+                onClick={() => {
+                  setEditTitle(result.title);
+                  setEditTitleError(null);
+                  setIsEditTitleModalOpen(true);
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Edit analysis title"
+                aria-label="Edit analysis title"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Action Buttons */}
@@ -222,7 +309,7 @@ export default function ResultsDashboard({
       </div>
 
       {/* Metrics Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {/* Messages Analyzed */}
         <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3.5 space-y-1">
           <div className="flex items-center gap-1.5 text-xs text-slate-400">
@@ -269,7 +356,7 @@ export default function ResultsDashboard({
         </div>
 
         {/* Important Dates */}
-        <div className="col-span-2 sm:col-span-1 rounded-xl border border-slate-800 bg-slate-900/40 p-3.5 space-y-1">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3.5 space-y-1">
           <div className="flex items-center gap-1.5 text-xs text-slate-400">
             <Calendar className="h-3.5 w-3.5 text-purple-400" />
             <span>Key Dates</span>
@@ -278,29 +365,66 @@ export default function ResultsDashboard({
             {result.stats.importantDatesCount}
           </div>
         </div>
+
+        {/* Pending Decisions */}
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3.5 space-y-1">
+          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+            <Clock className="h-3.5 w-3.5 text-amber-400" />
+            <span>Pending</span>
+          </div>
+          <div className="text-xl font-bold text-white font-mono">
+            {result.stats.pendingDecisionsCount || result.pendingDecisions?.length || 0}
+          </div>
+        </div>
       </div>
 
       {/* Main Results Container */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl shadow-black/40 p-5 sm:p-7 space-y-6">
-        {/* View Switcher Tabs */}
-        <div className="flex items-center justify-start border-b border-slate-800 pb-4 overflow-x-auto gap-2">
-          {tabs.map((tab) => {
-            const isActive = activeView === tab.id;
-            return (
+        {/* View Switcher Tabs & Tab-Scoped Search Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+          {/* Tabs */}
+          <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+            {tabs.map((tab) => {
+              const isActive = activeView === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => handleTabChange(tab.id)}
+                  className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                    isActive
+                      ? "bg-blue-600 text-white shadow-md shadow-blue-600/20"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
+                  }`}
+                >
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Tab-Scoped Search Input */}
+          <div className="relative w-full sm:w-64 md:w-72 shrink-0">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
+              className="w-full pl-9 pr-8 py-2 bg-slate-900/80 border border-slate-800 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-colors"
+            />
+            {searchQuery && (
               <button
-                key={tab.id}
-                onClick={() => setActiveView(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all ${
-                  isActive
-                    ? "bg-blue-600 text-white shadow-md shadow-blue-600/20"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
-                }`}
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-slate-300 rounded cursor-pointer transition-colors"
+                title="Clear search"
+                aria-label="Clear search"
               >
-                {tab.icon}
-                <span>{tab.label}</span>
+                <X className="h-3.5 w-3.5" />
               </button>
-            );
-          })}
+            )}
+          </div>
         </div>
 
         {/* Active View Render */}
@@ -309,19 +433,32 @@ export default function ResultsDashboard({
             <KeyPointsView
               keyPoints={result.keyPoints}
               onOpenSource={(src) => setSelectedSource(src)}
+              searchQuery={searchQuery}
+              onClearSearch={() => setSearchQuery("")}
             />
           )}
-          {activeView === "summary" && <SummaryView result={result} />}
+          {activeView === "summary" && (
+            <SummaryView
+              result={result}
+              searchQuery={searchQuery}
+              onClearSearch={() => setSearchQuery("")}
+            />
+          )}
           {activeView === "table" && (
             <TableView
               result={result}
               onOpenSource={(src) => setSelectedSource(src)}
+              searchQuery={searchQuery}
+              onClearSearch={() => setSearchQuery("")}
             />
           )}
           {activeView === "structured" && (
             <StructuredView
               result={result}
               onOpenSource={(src) => setSelectedSource(src)}
+              isFromMemory={isFromMemory}
+              searchQuery={searchQuery}
+              onClearSearch={() => setSearchQuery("")}
             />
           )}
         </div>
@@ -534,6 +671,81 @@ export default function ResultsDashboard({
                 Create Free Account
               </Link>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Analysis Title */}
+      {isEditTitleModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-analysis-detail-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150 overflow-y-auto"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsEditTitleModalOpen(false);
+          }}
+        >
+          <div className="w-full max-w-md max-h-[90vh] flex flex-col my-auto overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+              <div className="flex items-center gap-2">
+                <Pencil className="h-4 w-4 text-blue-400" />
+                <h3 id="edit-analysis-detail-title" className="text-base font-bold text-white">Edit Analysis Title</h3>
+              </div>
+              <button
+                onClick={() => setIsEditTitleModalOpen(false)}
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+                aria-label="Close modal"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveTitle} className="flex-1 overflow-y-auto space-y-4 py-1 pr-1">
+              {editTitleError && (
+                <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span>{editTitleError}</span>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  Analysis Title <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  maxLength={200}
+                  placeholder="e.g. Q3 Roadmap Discussion"
+                  required
+                  autoFocus
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <div className="flex justify-end text-[11px] text-slate-500">
+                  <span>{editTitle.length}/200</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsEditTitleModalOpen(false)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isEditingTitle || !editTitle.trim()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 cursor-pointer"
+                >
+                  {isEditingTitle && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  <span>Save</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

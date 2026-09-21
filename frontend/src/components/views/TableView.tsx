@@ -2,16 +2,18 @@
 
 import { useMemo, useState } from "react";
 import { ShiftlyAnalysisResult, SourceReference } from "@/types/analysis";
-import { Info, ArrowUpDown, Filter } from "lucide-react";
+import { Info, Filter } from "lucide-react";
 
 interface TableViewProps {
   result: ShiftlyAnalysisResult;
   onOpenSource: (source: SourceReference) => void;
+  searchQuery?: string;
+  onClearSearch?: () => void;
 }
 
 interface TableRow {
   id: string;
-  type: "Key Point" | "Action" | "Decision" | "Date";
+  type: "Key Point" | "Action" | "Decision" | "Date" | "Pending Decision";
   typeLabel: string;
   information: string;
   person: string;
@@ -19,7 +21,12 @@ interface TableRow {
   source: SourceReference;
 }
 
-export default function TableView({ result, onOpenSource }: TableViewProps) {
+export default function TableView({
+  result,
+  onOpenSource,
+  searchQuery = "",
+  onClearSearch,
+}: TableViewProps) {
   const [filterType, setFilterType] = useState<string>("all");
 
   const rows: TableRow[] = useMemo(() => {
@@ -61,6 +68,18 @@ export default function TableView({ result, onOpenSource }: TableViewProps) {
       });
     });
 
+    (result.pendingDecisions || []).forEach((pd) => {
+      list.push({
+        id: pd.id,
+        type: "Pending Decision",
+        typeLabel: "Pending Decision",
+        information: pd.decision,
+        person: "—",
+        date: "Awaiting resolution",
+        source: pd.source,
+      });
+    });
+
     result.importantDates.forEach((dt) => {
       list.push({
         id: dt.id,
@@ -76,10 +95,24 @@ export default function TableView({ result, onOpenSource }: TableViewProps) {
     return list;
   }, [result]);
 
+  const query = searchQuery.trim().toLowerCase();
+
   const filteredRows = useMemo(() => {
-    if (filterType === "all") return rows;
-    return rows.filter((r) => r.type === filterType);
-  }, [rows, filterType]);
+    let list = rows;
+    if (filterType !== "all") {
+      list = list.filter((r) => r.type === filterType);
+    }
+    if (query) {
+      list = list.filter(
+        (r) =>
+          r.information.toLowerCase().includes(query) ||
+          r.person.toLowerCase().includes(query) ||
+          r.date.toLowerCase().includes(query) ||
+          r.typeLabel.toLowerCase().includes(query)
+      );
+    }
+    return list;
+  }, [rows, filterType, query]);
 
   const getTypeBadgeStyle = (type: TableRow["type"]) => {
     switch (type) {
@@ -87,6 +120,8 @@ export default function TableView({ result, onOpenSource }: TableViewProps) {
         return "bg-amber-500/10 text-amber-400 border-amber-500/20";
       case "Decision":
         return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+      case "Pending Decision":
+        return "bg-amber-500/10 text-amber-400 border-amber-500/20";
       case "Date":
         return "bg-purple-500/10 text-purple-400 border-purple-500/20";
       default:
@@ -99,7 +134,8 @@ export default function TableView({ result, onOpenSource }: TableViewProps) {
       {/* Filter toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800">
         <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
-          Consolidated Table View ({filteredRows.length} items)
+          Consolidated Table View ({filteredRows.length}
+          {query || filterType !== "all" ? ` of ${rows.length}` : ""} items)
         </h3>
 
         {/* Filter Chips */}
@@ -110,12 +146,13 @@ export default function TableView({ result, onOpenSource }: TableViewProps) {
             { id: "Key Point", label: "Key Points" },
             { id: "Action", label: "Actions" },
             { id: "Decision", label: "Decisions" },
+            { id: "Pending Decision", label: "Pending" },
             { id: "Date", label: "Dates" },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setFilterType(tab.id)}
-              className={`rounded-lg px-2.5 py-1 font-medium transition-colors ${
+              className={`rounded-lg px-2.5 py-1 font-medium transition-colors cursor-pointer ${
                 filterType === tab.id
                   ? "bg-slate-800 text-white border border-slate-700"
                   : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
@@ -143,46 +180,62 @@ export default function TableView({ result, onOpenSource }: TableViewProps) {
             {filteredRows.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-xs text-slate-400">
-                  No matching intelligence items found.
+                  {query || filterType !== "all" ? (
+                    <div className="space-y-2">
+                      <p>No matching intelligence items found.</p>
+                      <button
+                        onClick={() => {
+                          setFilterType("all");
+                          onClearSearch?.();
+                        }}
+                        className="text-blue-400 hover:text-blue-300 underline cursor-pointer"
+                      >
+                        Reset filters
+                      </button>
+                    </div>
+                  ) : (
+                    "No intelligence items recorded."
+                  )}
                 </td>
               </tr>
             ) : (
               filteredRows.map((row) => (
-              <tr
-                key={row.id}
-                className="hover:bg-slate-900/50 transition-colors group"
-              >
-                <td className="px-4 py-3.5 whitespace-nowrap align-top">
-                  <span
-                    className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold border ${getTypeBadgeStyle(
-                      row.type
-                    )}`}
-                  >
-                    {row.typeLabel}
-                  </span>
-                </td>
-                <td className="px-4 py-3.5 text-slate-200 align-top leading-relaxed max-w-md">
-                  {row.information}
-                </td>
-                <td className="px-4 py-3.5 text-slate-300 align-top whitespace-nowrap font-medium">
-                  {row.person}
-                </td>
-                <td className="px-4 py-3.5 text-slate-400 align-top whitespace-nowrap font-mono text-xs">
-                  {row.date}
-                </td>
-                <td className="px-4 py-3.5 text-right align-top whitespace-nowrap">
-                  <button
-                    onClick={() => onOpenSource(row.source)}
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-400 hover:text-blue-300 hover:border-blue-500/40 transition-colors"
-                    title="View source citation"
-                    aria-label={`View source citation for ${row.typeLabel}: ${row.information.slice(0, 30)}`}
-                  >
-                    <Info className="h-3.5 w-3.5 text-blue-400" />
-                    <span className="hidden md:inline text-[11px]">View</span>
-                  </button>
-                </td>
-              </tr>
-            )))}
+                <tr
+                  key={row.id}
+                  className="hover:bg-slate-900/50 transition-colors group"
+                >
+                  <td className="px-4 py-3.5 whitespace-nowrap align-top">
+                    <span
+                      className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold border ${getTypeBadgeStyle(
+                        row.type
+                      )}`}
+                    >
+                      {row.typeLabel}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5 text-slate-200 align-top leading-relaxed max-w-md">
+                    {row.information}
+                  </td>
+                  <td className="px-4 py-3.5 text-slate-300 align-top whitespace-nowrap font-medium">
+                    {row.person}
+                  </td>
+                  <td className="px-4 py-3.5 text-slate-400 align-top whitespace-nowrap font-mono text-xs">
+                    {row.date}
+                  </td>
+                  <td className="px-4 py-3.5 text-right align-top whitespace-nowrap">
+                    <button
+                      onClick={() => onOpenSource(row.source)}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-400 hover:text-blue-300 hover:border-blue-500/40 transition-colors cursor-pointer"
+                      title="View source citation"
+                      aria-label={`View source citation for ${row.typeLabel}: ${row.information.slice(0, 30)}`}
+                    >
+                      <Info className="h-3.5 w-3.5 text-blue-400" />
+                      <span className="hidden md:inline text-[11px]">View</span>
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

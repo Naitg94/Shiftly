@@ -27,12 +27,14 @@ const EMPTY_ANALYSIS_RESULT: ShiftlyAnalysisResult = {
     actionsCount: 0,
     decisionsCount: 0,
     importantDatesCount: 0,
+    pendingDecisionsCount: 0,
   },
   summary: '',
   keyPoints: [],
   actions: [],
   decisions: [],
   importantDates: [],
+  pendingDecisions: [],
 };
 
 export default function Home() {
@@ -51,6 +53,7 @@ export default function Home() {
 
   // Memory view states
   const [isViewingMemoryResult, setIsViewingMemoryResult] = useState(false);
+  const [memoryProjectId, setMemoryProjectId] = useState<string | null>(null);
 
   const handleStartAnalysis = async () => {
     setErrorMessage(null);
@@ -119,6 +122,7 @@ export default function Home() {
     setIsGuestOversizedError(false);
     setIsApiDone(false);
     setIsViewingMemoryResult(false);
+    setMemoryProjectId(null);
     setAnalysisResult(EMPTY_ANALYSIS_RESULT);
   };
 
@@ -137,11 +141,13 @@ export default function Home() {
     setMainTab(tab);
     if (tab === 'analyze') {
       setIsViewingMemoryResult(false);
+      setMemoryProjectId(null);
     }
   };
 
-  const handleLoadMemoryAnalysis = (loaded: ShiftlyAnalysisResult) => {
+  const handleLoadMemoryAnalysis = (loaded: ShiftlyAnalysisResult, projId?: string) => {
     setAnalysisResult(loaded);
+    setMemoryProjectId(projId || null);
     setIsViewingMemoryResult(true);
   };
 
@@ -209,7 +215,14 @@ export default function Home() {
                 result={analysisResult}
                 onReset={handleReset}
                 isFromMemory={true}
-                onBackToMemory={() => setIsViewingMemoryResult(false)}
+                projectId={memoryProjectId || undefined}
+                onUpdateTitle={(newTitle) =>
+                  setAnalysisResult((prev) => ({ ...prev, title: newTitle }))
+                }
+                onBackToMemory={() => {
+                  setIsViewingMemoryResult(false);
+                  setMemoryProjectId(null);
+                }}
               />
             ) : (
               <ProjectMemory

@@ -352,7 +352,7 @@ def test_guest_whatsapp_zip_extracted_text_oversized_rejected_413():
 def test_authenticated_whatsapp_zip_oversized_succeeds():
     valid_long_chat = (
         "[24/05/2024, 10:00:00] Alice Morgan: Let us finalize all architectural milestones.\n"
-        + ("[24/05/2024, 10:05:00] Bob Vance: Milestone item details: " + "x" * 100 + "\n") * 32
+        + ("[24/05/2024, 10:05:00] Bob Vance: Completed architectural review and approved structural schematics for phase 2.\n") * 32
     )
     zip_bytes = build_zip_archive({"_chat.txt": valid_long_chat})
     

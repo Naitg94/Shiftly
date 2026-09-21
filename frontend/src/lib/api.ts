@@ -91,6 +91,42 @@ export async function fetchProject(projectId: string): Promise<Project> {
   return res.json();
 }
 
+export async function updateProjectName(projectId: string, name: string): Promise<Project> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders,
+    },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    return parseErrorResponse(res);
+  }
+  return res.json();
+}
+
+export async function updateAnalysisTitle(
+  projectId: string,
+  analysisId: string,
+  title: string
+): Promise<StoredAnalysisSummary> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}/analyses/${analysisId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders,
+    },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) {
+    return parseErrorResponse(res);
+  }
+  return res.json();
+}
+
 export async function fetchAnalyses(projectId: string): Promise<StoredAnalysisSummary[]> {
   const authHeaders = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/projects/${projectId}/analyses`, {
@@ -110,6 +146,21 @@ export async function fetchAnalysis(
 ): Promise<ShiftlyAnalysisResult> {
   const authHeaders = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/projects/${projectId}/analyses/${analysisId}`, {
+    headers: {
+      ...authHeaders,
+    },
+  });
+  if (!res.ok) {
+    return parseErrorResponse(res);
+  }
+  return res.json();
+}
+
+export async function fetchProjectIntelligence(
+  projectId: string
+): Promise<ShiftlyAnalysisResult> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}/intelligence`, {
     headers: {
       ...authHeaders,
     },

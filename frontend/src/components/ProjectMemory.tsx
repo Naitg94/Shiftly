@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Folder,
   Plus,
@@ -17,22 +17,27 @@ import {
   FileText,
   X,
   Trash2,
+  Clock,
+  Pencil,
 } from "lucide-react";
 import { Project, StoredAnalysisSummary, SearchResultItem } from "@/types/project";
 import {
   fetchProjects,
   createProject,
+  updateProjectName,
   deleteProject,
   fetchAnalyses,
   fetchAnalysis,
+  updateAnalysisTitle,
   deleteAnalysis,
   searchProjectIntelligence,
+  fetchProjectIntelligence,
   ApiError,
 } from "@/lib/api";
 import { ShiftlyAnalysisResult } from "@/types/analysis";
 
 interface ProjectMemoryProps {
-  onLoadAnalysis: (result: ShiftlyAnalysisResult) => void;
+  onLoadAnalysis: (result: ShiftlyAnalysisResult, projectId?: string) => void;
 }
 
 export default function ProjectMemory({ onLoadAnalysis }: ProjectMemoryProps) {
@@ -55,16 +60,34 @@ export default function ProjectMemory({ onLoadAnalysis }: ProjectMemoryProps) {
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // Edit Project Name Modal State
+  const [isEditProjectModalOpen, setIsEditProjectModalOpen] = useState(false);
+  const [editProjectName, setEditProjectName] = useState("");
+  const [isEditingProject, setIsEditingProject] = useState(false);
+  const [editProjectError, setEditProjectError] = useState<string | null>(null);
+
   // Delete Project Modal State
   const [isDeleteProjectModalOpen, setIsDeleteProjectModalOpen] = useState(false);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
+
+  // Edit Analysis Title Modal State
+  const [analysisToEdit, setAnalysisToEdit] = useState<StoredAnalysisSummary | null>(null);
+  const [editAnalysisTitle, setEditAnalysisTitle] = useState("");
+  const [isEditingAnalysis, setIsEditingAnalysis] = useState(false);
+  const [editAnalysisError, setEditAnalysisError] = useState<string | null>(null);
 
   // Delete Analysis Modal State
   const [analysisToDelete, setAnalysisToDelete] = useState<StoredAnalysisSummary | null>(null);
   const [isDeletingAnalysis, setIsDeletingAnalysis] = useState(false);
 
   // Close modals on Escape key & lock body scroll
-  const isAnyModalOpen = Boolean(isCreateModalOpen || isDeleteProjectModalOpen || analysisToDelete);
+  const isAnyModalOpen = Boolean(
+    isCreateModalOpen ||
+    isEditProjectModalOpen ||
+    isDeleteProjectModalOpen ||
+    analysisToEdit ||
+    analysisToDelete
+  );
   useEffect(() => {
     if (!isAnyModalOpen) return;
     const originalOverflow = document.body.style.overflow;
@@ -72,7 +95,9 @@ export default function ProjectMemory({ onLoadAnalysis }: ProjectMemoryProps) {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (isCreateModalOpen) setIsCreateModalOpen(false);
+        if (isEditProjectModalOpen) setIsEditProjectModalOpen(false);
         if (isDeleteProjectModalOpen) setIsDeleteProjectModalOpen(false);
+        if (analysisToEdit) setAnalysisToEdit(null);
         if (analysisToDelete) setAnalysisToDelete(null);
       }
     };
@@ -81,7 +106,14 @@ export default function ProjectMemory({ onLoadAnalysis }: ProjectMemoryProps) {
       document.body.style.overflow = originalOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isAnyModalOpen, isCreateModalOpen, isDeleteProjectModalOpen, analysisToDelete]);
+  }, [
+    isAnyModalOpen,
+    isCreateModalOpen,
+    isEditProjectModalOpen,
+    isDeleteProjectModalOpen,
+    analysisToEdit,
+    analysisToDelete,
+  ]);
 
   // Initial load of projects
   const loadProjects = useCallback(async (selectId?: string) => {
@@ -137,30 +169,68 @@ export default function ProjectMemory({ onLoadAnalysis }: ProjectMemoryProps) {
     }
   }, [selectedProjectId, loadAnalysesForProject]);
 
-  // Search within selected project
-  const handleSearch = async (query: string) => {
-    setSearchQuery(query);
-    if (!query.trim()) {
+  // Search within selected project with debounce (250ms) and query sequence guard
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSearchQueryRef = useRef<string>("");
+
+  const executeSearch = useCallback(async (query: string, projId: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
       setSearchResults([]);
       setSearchError(null);
+      setIsSearching(false);
       return;
     }
-    if (!selectedProjectId) return;
+    if (!projId) return;
 
+    lastSearchQueryRef.current = trimmed;
     setIsSearching(true);
     setSearchError(null);
     try {
-      const res = await searchProjectIntelligence(selectedProjectId, query.trim());
-      setSearchResults(res.results);
+      const res = await searchProjectIntelligence(projId, trimmed);
+      if (lastSearchQueryRef.current === trimmed) {
+        setSearchResults(res.results);
+      }
     } catch (err: unknown) {
-      // Deterministic recovery: reset stale results immediately on failure
-      setSearchResults([]);
-      const msg = err instanceof Error ? err.message : "Search failed. Please try again.";
-      setSearchError(msg);
+      if (lastSearchQueryRef.current === trimmed) {
+        setSearchResults([]);
+        const msg = err instanceof Error ? err.message : "Search failed. Please try again.";
+        setSearchError(msg);
+      }
     } finally {
-      setIsSearching(false);
+      if (lastSearchQueryRef.current === trimmed) {
+        setIsSearching(false);
+      }
     }
+  }, []);
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    const trimmed = query.trim();
+    if (!trimmed) {
+      lastSearchQueryRef.current = "";
+      setSearchResults([]);
+      setSearchError(null);
+      setIsSearching(false);
+      return;
+    }
+    setIsSearching(true);
+    searchTimeoutRef.current = setTimeout(() => {
+      executeSearch(query, selectedProjectId);
+    }, 250);
   };
+
+  // Clean up debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Handle creating a new project
   const handleCreateProject = async (e: React.FormEvent) => {
@@ -189,16 +259,128 @@ export default function ProjectMemory({ onLoadAnalysis }: ProjectMemoryProps) {
     }
   };
 
+  // Open Edit Project Modal
+  const handleOpenEditProject = () => {
+    if (!selectedProject) return;
+    setEditProjectName(selectedProject.name);
+    setEditProjectError(null);
+    setIsEditProjectModalOpen(true);
+  };
+
+  // Submit Edit Project Name
+  const handleSaveProjectName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProjectId || !selectedProject) return;
+    const trimmed = editProjectName.trim();
+    if (!trimmed) {
+      setEditProjectError("Project name cannot be empty");
+      return;
+    }
+    if (trimmed.length > 150) {
+      setEditProjectError("Project name must not exceed 150 characters");
+      return;
+    }
+    if (/[\x00-\x1f]/.test(trimmed)) {
+      setEditProjectError("Project name contains invalid control characters");
+      return;
+    }
+    if (trimmed === selectedProject.name) {
+      setIsEditProjectModalOpen(false);
+      return;
+    }
+
+    setIsEditingProject(true);
+    setEditProjectError(null);
+    try {
+      const updated = await updateProjectName(selectedProjectId, trimmed);
+      setProjects((prev) =>
+        prev.map((p) => (p.id === selectedProjectId ? { ...p, name: updated.name } : p))
+      );
+      setIsEditProjectModalOpen(false);
+    } catch (err: unknown) {
+      setEditProjectError(
+        err instanceof Error ? err.message : "Failed to update project name"
+      );
+    } finally {
+      setIsEditingProject(false);
+    }
+  };
+
+  // Open Edit Analysis Modal
+  const handleOpenEditAnalysis = (item: StoredAnalysisSummary) => {
+    setAnalysisToEdit(item);
+    setEditAnalysisTitle(item.title);
+    setEditAnalysisError(null);
+  };
+
+  // Submit Edit Analysis Title
+  const handleSaveAnalysisTitle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProjectId || !analysisToEdit) return;
+    const trimmed = editAnalysisTitle.trim();
+    if (!trimmed) {
+      setEditAnalysisError("Analysis title cannot be empty");
+      return;
+    }
+    if (trimmed.length > 200) {
+      setEditAnalysisError("Analysis title must not exceed 200 characters");
+      return;
+    }
+    if (/[\x00-\x1f]/.test(trimmed)) {
+      setEditAnalysisError("Analysis title contains invalid control characters");
+      return;
+    }
+    if (trimmed === analysisToEdit.title) {
+      setAnalysisToEdit(null);
+      return;
+    }
+
+    setIsEditingAnalysis(true);
+    setEditAnalysisError(null);
+    try {
+      const updated = await updateAnalysisTitle(selectedProjectId, analysisToEdit.id, trimmed);
+      setAnalyses((prev) =>
+        prev.map((a) => (a.id === analysisToEdit.id ? { ...a, title: updated.title } : a))
+      );
+      setSearchResults((prev) =>
+        prev.map((s) => (s.analysis_id === analysisToEdit.id ? { ...s, analysis_title: updated.title } : s))
+      );
+      setAnalysisToEdit(null);
+    } catch (err: unknown) {
+      setEditAnalysisError(
+        err instanceof Error ? err.message : "Failed to update analysis title"
+      );
+    } finally {
+      setIsEditingAnalysis(false);
+    }
+  };
+
   // View an analysis
   const handleOpenAnalysis = async (analysisId: string) => {
     if (!selectedProjectId) return;
     setIsLoadingDetail(true);
     try {
       const fullAnalysis = await fetchAnalysis(selectedProjectId, analysisId);
-      onLoadAnalysis(fullAnalysis);
+      onLoadAnalysis(fullAnalysis, selectedProjectId);
     } catch (err: unknown) {
       setErrorMessage(
         err instanceof Error ? err.message : "Failed to load full analysis"
+      );
+    } finally {
+      setIsLoadingDetail(false);
+    }
+  };
+
+  // View aggregated project intelligence
+  const handleOpenProjectIntelligence = async () => {
+    if (!selectedProjectId) return;
+    setIsLoadingDetail(true);
+    try {
+      const aggResult = await fetchProjectIntelligence(selectedProjectId);
+      onLoadAnalysis(aggResult, selectedProjectId);
+    } catch (err: unknown) {
+      setErrorMessage(
+        err instanceof Error ? err.message : "Failed to load aggregated project intelligence"
       );
     } finally {
       setIsLoadingDetail(false);
@@ -347,6 +529,14 @@ export default function ProjectMemory({ onLoadAnalysis }: ProjectMemoryProps) {
                   <h3 className="text-lg font-bold text-white tracking-tight">
                     {selectedProject.name}
                   </h3>
+                  <button
+                    onClick={handleOpenEditProject}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                    title="Edit project name"
+                    aria-label="Edit project name"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
                 </div>
                 {selectedProject.description && (
                   <p className="text-xs text-slate-400 pl-6">
@@ -360,7 +550,7 @@ export default function ProjectMemory({ onLoadAnalysis }: ProjectMemoryProps) {
                 </div>
                 <button
                   onClick={() => setIsDeleteProjectModalOpen(true)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-rose-500/20 transition-all font-medium"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-rose-500/20 transition-all font-medium cursor-pointer"
                   title="Delete this project"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -433,6 +623,11 @@ export default function ProjectMemory({ onLoadAnalysis }: ProjectMemoryProps) {
                         label: "Decision",
                         color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
                         icon: <Gavel className="h-3 w-3" />,
+                      },
+                      "Pending Decision": {
+                        label: "Pending Decision",
+                        color: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+                        icon: <Clock className="h-3 w-3" />,
                       },
                       "Date": {
                         label: "Important Date",
@@ -521,9 +716,19 @@ export default function ProjectMemory({ onLoadAnalysis }: ProjectMemoryProps) {
                           <Calendar className="h-3 w-3 text-slate-500" />
                           <span>{item.created_at.slice(0, 16).replace("T", " ")}</span>
                         </div>
-                        <h4 className="text-base font-semibold text-white tracking-tight truncate group-hover:text-blue-300 transition-colors">
-                          {item.title}
-                        </h4>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-base font-semibold text-white tracking-tight truncate group-hover:text-blue-300 transition-colors">
+                            {item.title}
+                          </h4>
+                          <button
+                            onClick={() => handleOpenEditAnalysis(item)}
+                            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                            title="Edit analysis title"
+                            aria-label="Edit analysis title"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
 
                         {/* Counts Badges */}
                         <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -538,6 +743,10 @@ export default function ProjectMemory({ onLoadAnalysis }: ProjectMemoryProps) {
                           <span className="inline-flex items-center gap-1 text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg">
                             <Gavel className="h-2.5 w-2.5 text-emerald-400" />
                             <span>{item.decisions_count} decisions</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-lg">
+                            <Clock className="h-2.5 w-2.5 text-amber-400" />
+                            <span>{item.pending_decisions_count || 0} pending</span>
                           </span>
                           <span className="inline-flex items-center gap-1 text-[11px] text-purple-300 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-lg">
                             <Calendar className="h-2.5 w-2.5 text-purple-400" />
@@ -748,6 +957,156 @@ export default function ProjectMemory({ onLoadAnalysis }: ProjectMemoryProps) {
                 <span>Delete Analysis</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Project Name */}
+      {isEditProjectModalOpen && selectedProject && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-project-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150 overflow-y-auto"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsEditProjectModalOpen(false);
+          }}
+        >
+          <div className="w-full max-w-md max-h-[90vh] flex flex-col my-auto overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+              <div className="flex items-center gap-2">
+                <Pencil className="h-4 w-4 text-blue-400" />
+                <h3 id="edit-project-title" className="text-base font-bold text-white">Edit Project Name</h3>
+              </div>
+              <button
+                onClick={() => setIsEditProjectModalOpen(false)}
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+                aria-label="Close modal"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProjectName} className="flex-1 overflow-y-auto space-y-4 py-1 pr-1">
+              {editProjectError && (
+                <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span>{editProjectError}</span>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  Project Name <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editProjectName}
+                  onChange={(e) => setEditProjectName(e.target.value)}
+                  maxLength={150}
+                  placeholder="e.g. Riverside Office Renovation"
+                  required
+                  autoFocus
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <div className="flex justify-end text-[11px] text-slate-500">
+                  <span>{editProjectName.length}/150</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsEditProjectModalOpen(false)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isEditingProject || !editProjectName.trim()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 cursor-pointer"
+                >
+                  {isEditingProject && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  <span>Save</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Analysis Title */}
+      {analysisToEdit && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-analysis-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150 overflow-y-auto"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setAnalysisToEdit(null);
+          }}
+        >
+          <div className="w-full max-w-md max-h-[90vh] flex flex-col my-auto overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+              <div className="flex items-center gap-2">
+                <Pencil className="h-4 w-4 text-blue-400" />
+                <h3 id="edit-analysis-title" className="text-base font-bold text-white">Edit Analysis Title</h3>
+              </div>
+              <button
+                onClick={() => setAnalysisToEdit(null)}
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+                aria-label="Close modal"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAnalysisTitle} className="flex-1 overflow-y-auto space-y-4 py-1 pr-1">
+              {editAnalysisError && (
+                <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span>{editAnalysisError}</span>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  Analysis Title <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editAnalysisTitle}
+                  onChange={(e) => setEditAnalysisTitle(e.target.value)}
+                  maxLength={200}
+                  placeholder="e.g. Q3 Roadmap Discussion"
+                  required
+                  autoFocus
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <div className="flex justify-end text-[11px] text-slate-500">
+                  <span>{editAnalysisTitle.length}/200</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setAnalysisToEdit(null)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isEditingAnalysis || !editAnalysisTitle.trim()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 cursor-pointer"
+                >
+                  {isEditingAnalysis && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  <span>Save</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

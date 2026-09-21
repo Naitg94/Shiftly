@@ -1,4 +1,4 @@
-﻿from typing import List, Optional, Literal
+from typing import List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -39,6 +39,13 @@ class DecisionItem(BaseModel):
     source: SourceReference = Field(..., description="Citation linking to source message")
 
 
+class PendingDecisionItem(BaseModel):
+    id: str = Field(..., description="Unique identifier, e.g. pd-1")
+    decision: str = Field(..., description="Unresolved decision or confirmation awaiting resolution")
+    status: Literal["Pending"] = Field(default="Pending", description="Status of the decision")
+    source: SourceReference = Field(..., description="Citation linking to source message")
+
+
 class ImportantDateItem(BaseModel):
     id: str = Field(..., description="Unique identifier, e.g. dt-1")
     title: str = Field(..., description="Name of the milestone, event, or deadline")
@@ -54,6 +61,7 @@ class AnalysisStats(BaseModel):
     actionsCount: int = Field(default=0, description="Number of action items extracted")
     decisionsCount: int = Field(default=0, description="Number of decisions extracted")
     importantDatesCount: int = Field(default=0, description="Number of important dates extracted")
+    pendingDecisionsCount: int = Field(default=0, description="Number of pending decisions extracted")
 
 
 class ShiftlyAnalysisResult(BaseModel):
@@ -66,6 +74,7 @@ class ShiftlyAnalysisResult(BaseModel):
     actions: List[ActionItem] = Field(default_factory=list, description="List of action items")
     decisions: List[DecisionItem] = Field(default_factory=list, description="List of decisions and approvals")
     importantDates: List[ImportantDateItem] = Field(default_factory=list, description="List of milestone dates")
+    pendingDecisions: List[PendingDecisionItem] = Field(default_factory=list, description="List of pending or unresolved decisions")
 
 
 class AnalyzeRequest(BaseModel):
