@@ -17,6 +17,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Shiftly — Find what matters",
   description: "Shiftly is an AI-powered communication intelligence layer.",
+  verification: {
+    google: "dCS_8UM9diToGgzGks281uZqLYFGdiOPKTrHrhrX3c8",
+  },
 };
 
 const themeInitScript = `
@@ -93,11 +96,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-
-export const metadata: Metadata = {
-  title: "Shiftly",
-  description: "...",
-  verification: {
-    google: "dCS_8UM9diToGgzGks281uZqLYFGdiOPKTrHrhrX3c8",
-  },
-};
