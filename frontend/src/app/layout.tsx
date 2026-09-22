@@ -93,3 +93,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
+
+export const metadata: Metadata = {
+  title: "Shiftly",
+  description: "...",
+  verification: {
+    google: "dCS_8UM9diToGgzGks281uZqLYFGdiOPKTrHrhrX3c8",
+  },
+};
