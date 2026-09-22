@@ -159,7 +159,7 @@ def score_key_point(kp: KeyPointItem) -> float:
     # 5. Consequential concrete facts (measurements, dates, currency, numbers)
     if re.search(r"\b\d+([.,]\d+)?\s*(mm|cm|m|km|kg|lbs|%|k|m|hours|days|weeks|pm|am)\b", text):
         score += 2.0
-    if re.search(r"(\$|â‚¬|Â£|â‚¹|\b\d{1,2}/\d{1,2}\b|\boct\b|\bnov\b|\bdec\b|\bjan\b|\bfeb\b|\bmar\b|\bapr\b|\bmay\b|\bjun\b|\bjul\b|\baug\b|\bsep\b)", text):
+    if re.search(r"(\$|€|£|₹|\b\d{1,2}/\d{1,2}\b|\boct\b|\bnov\b|\bdec\b|\bjan\b|\bfeb\b|\bmar\b|\bapr\b|\bmay\b|\bjun\b|\bjul\b|\baug\b|\bsep\b)", text):
         score += 2.0
 
     # 6. Valid, substantive source citation bonus

@@ -53,3 +53,8 @@ Thumbs.db
 
 # Scratch & temporary artifacts
 scratch/
+
+# Testing & Coverage
+.pytest_cache/
+coverage/
+*.tsbuildinfo

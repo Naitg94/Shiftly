@@ -390,26 +390,26 @@ def analyze_communication(
     # Ensure metadata timestamps and realistic message estimates
     estimated_msgs = estimate_messages_count(cleaned_text)
     final_result.stats.messagesAnalyzed = max(final_result.stats.messagesAnalyzed, estimated_msgs)
-    final_result.analyzedAt = datetime.now().strftime("%B %d, %Y â€¢ %I:%M %p")
+    final_result.analyzedAt = datetime.now().strftime("%B %d, %Y • %I:%M %p")
 
     # Sanitize hallucinated dates if raw text does not contain any calendar year
     has_explicit_year = bool(re.search(r"\b(20\d{2}|19\d{2})\b", cleaned_text))
     if not has_explicit_year:
         for kp in final_result.keyPoints:
             if kp.source and kp.source.date and re.search(r"\b(20\d{2}|19\d{2})\b", kp.source.date):
-                kp.source.date = "â€”"
+                kp.source.date = "—"
         for act in final_result.actions:
             if act.deadline and re.search(r"\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b", act.deadline):
                 # If deadline was converted to e.g. 2023-09-11, check if text has the month/day name
                 cleaned_deadline = re.sub(r"\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b", "", act.deadline).strip(" ,-")
                 act.deadline = cleaned_deadline if cleaned_deadline else None
             if act.source and act.source.date and re.search(r"\b(20\d{2}|19\d{2})\b", act.source.date):
-                act.source.date = "â€”"
+                act.source.date = "—"
         for dec in final_result.decisions:
             if dec.date and re.search(r"\b(20\d{2}|19\d{2})\b", dec.date):
                 dec.date = None
             if dec.source and dec.source.date and re.search(r"\b(20\d{2}|19\d{2})\b", dec.source.date):
-                dec.source.date = "â€”"
+                dec.source.date = "—"
         for dt in final_result.importantDates:
             if dt.date and re.search(r"\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b", dt.date):
                 cleaned_dt = re.sub(r"\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b", "", dt.date).strip(" ,-")
